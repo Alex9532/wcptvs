@@ -72,7 +72,7 @@ async function bootWebContainer() {
     appendOutput("WebContainer booted.\n");
     return wc;
   } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
+    const msg = err?.message ?? String(err);
     errorEl.textContent = "Last error: " + msg;
     appendOutput("Failed to boot WebContainer: " + msg + "\n");
     throw err;
@@ -110,19 +110,10 @@ async function bundleProject(wc, entry) {
   return exitCode;
 }
 
-async function runProject(fileList) {
+async function runProject(files) {
   const wc = await bootWebContainer();
 
-  // --- FIX DataCloneError ---
-  // Convert all File objects to plain { path, content } first
-  const files = await Promise.all(
-    Array.from(fileList).map(async file => ({
-      path: "/" + file.webkitRelativePath,
-      content: await file.text()
-    }))
-  );
-
-  // Write files to WebContainer FS
+  // files is already an array of { path, content } → safe
   for (const file of files) {
     const dir = file.path.substring(0, file.path.lastIndexOf("/"));
     if (dir) await wc.fs.mkdir(dir, { recursive: true });
@@ -130,7 +121,7 @@ async function runProject(fileList) {
     appendOutput("Wrote: " + file.path + "\n");
   }
 
-  // Determine entry point
+  // Detect entry point
   const pkgFile = files.find(f => f.path.endsWith("package.json"));
   let entry = null;
 
@@ -144,11 +135,12 @@ async function runProject(fileList) {
     try {
       const pkg = JSON.parse(pkgFile.content);
       if (pkg.main) entry = pkg.main;
-    } catch (err) {
+    } catch {
       appendOutput("Failed to parse package.json, ignoring main field.\n");
     }
   }
 
+  // Fallback to common JS/TS entry points
   if (!entry) {
     const candidates = ["index.js", "index.ts", "src/index.js", "src/index.ts"];
     for (const c of candidates) {
@@ -173,18 +165,12 @@ async function runProject(fileList) {
     return;
   }
 
-  // --- RUN AND LOG IN REAL-TIME ---
+  // Run bundled file with real-time logging
   appendOutput("Running bundled out.js...\n");
   const runProc = await wc.spawn("node", ["out.js"]);
-
-  // Real-time console logging
-  const decoder = new TextDecoder();
   runProc.output.pipeTo(new WritableStream({
-    write(chunk) {
-      appendOutput(decoder.decode(chunk));
-    }
+    write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
   }));
-
   const exitCode = await runProc.exit;
   appendOutput("Process exited with code " + exitCode + "\n");
 }
@@ -195,8 +181,22 @@ document.getElementById("runBtn").onclick = async () => {
     appendOutput("Please choose a project folder.\n");
     return;
   }
-  // Convert FileList → Array before passing to runProject
-  await runProject(Array.from(fileInput.files));
+
+  try {
+    // Convert FileList → array of plain objects to prevent DataCloneError
+    const filesData = await Promise.all(
+      Array.from(fileInput.files).map(async file => ({
+        path: "/" + file.webkitRelativePath,
+        content: await file.text()
+      }))
+    );
+
+    // Run project safely
+    await runProject(filesData);
+
+  } catch (err) {
+    appendOutput("Error reading files: " + err.message + "\n");
+  }
 };
 
 document.getElementById("clearBtn").onclick = () => {
