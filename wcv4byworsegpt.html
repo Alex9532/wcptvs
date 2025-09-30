@@ -113,18 +113,21 @@ async function bundleProject(wc, entry) {
 async function runProject(files) {
   const wc = await bootWebContainer();
 
-  // Write all files to WebContainer FS
+  // Stream files directly into WebContainer one by one
   for (const file of files) {
-    const dir = file.path.substring(0, file.path.lastIndexOf("/"));
+    const filePath = "/" + file.webkitRelativePath;
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     if (dir) await wc.fs.mkdir(dir, { recursive: true });
-    await wc.fs.writeFile(file.path, file.content);
-    appendOutput("Wrote: " + file.path + "\n");
+
+    const content = await file.text(); // only one file in memory at a time
+    await wc.fs.writeFile(filePath, content);
+    appendOutput("Wrote: " + filePath + "\n");
   }
 
   // Determine entry point
   let entry = null;
 
-  const pkgFile = files.find(f => f.path.endsWith("package.json"));
+  const pkgFile = files.find(f => f.name === "package.json");
   if (pkgFile) {
     const code = await installDependencies(wc);
     if (code !== 0) {
@@ -133,7 +136,7 @@ async function runProject(files) {
     }
 
     try {
-      const pkg = JSON.parse(pkgFile.content);
+      const pkg = JSON.parse(await pkgFile.text());
       if (pkg.main) entry = pkg.main.startsWith("/") ? pkg.main : "/" + pkg.main;
     } catch {
       appendOutput("Failed to parse package.json, ignoring main field.\n");
@@ -142,8 +145,8 @@ async function runProject(files) {
 
   // Recursive search for first .js or .ts file if no entry yet
   if (!entry) {
-    const jsTsFiles = files
-      .map(f => f.path)
+    const jsTsFiles = Array.from(files)
+      .map(f => "/" + f.webkitRelativePath)
       .filter(p => p.endsWith(".js") || p.endsWith(".ts"))
       .sort();
     if (jsTsFiles.length > 0) entry = jsTsFiles[0];
@@ -181,18 +184,11 @@ document.getElementById("runBtn").onclick = async () => {
   }
 
   try {
-    // Read all files immediately into plain objects with string content
-    const filesData = [];
-    for (const file of fileInput.files) {
-      const text = await file.text(); // <-- guaranteed string
-      filesData.push({ path: "/" + file.webkitRelativePath, content: text });
-    }
-
-    // Pass only plain serializable objects to runProject
-    await runProject(filesData);
+    // Pass FileList directly → files will be streamed in runProject
+    await runProject(Array.from(fileInput.files));
 
   } catch (err) {
-    appendOutput("Error reading files: " + err.message + "\n");
+    appendOutput("Error: " + err.message + "\n");
   }
 };
 
