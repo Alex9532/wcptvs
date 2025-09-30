@@ -13,8 +13,6 @@ button { cursor: pointer; margin-right: 0.5rem; padding: 0.5rem 1rem; border-rad
 #cmdInput { width: 100%; padding: 0.5rem; border-radius: 0.3rem; border: none; margin-top: 0.5rem; background:#111; color:#0f0; }
 #dropZone { border: 2px dashed #ccc; border-radius: 0.5rem; padding: 2rem; text-align: center; margin-bottom: 0.5rem; cursor: pointer; background: #333; color:#ccc; }
 #dropZone.highlight { background: #444; }
-#progressContainer { width:100%; background:#555; border-radius:0.5rem; margin-bottom:0.5rem; height:1rem; }
-#progressBar { width:0%; height:100%; background:#2563eb; border-radius:0.5rem; transition: width 0.1s; }
 .status { font-size:0.85rem; margin-bottom:0.5rem; color:#aaa; }
 </style>
 </head>
@@ -23,7 +21,6 @@ button { cursor: pointer; margin-right: 0.5rem; padding: 0.5rem 1rem; border-rad
   <h1>WebContainer Interactive Runner</h1>
   <p class="status" id="status">Status: Idle</p>
   <div id="dropZone">Drag & drop files or folders here</div>
-  <div id="progressContainer"><div id="progressBar"></div></div>
   <div id="output">(terminal output will appear here)</div>
   <input id="cmdInput" placeholder="Type a command and press Enter">
   <div class="controls" style="margin-top:0.5rem;">
@@ -40,17 +37,26 @@ let isBooted = false;
 const outputEl = document.getElementById("output");
 const statusEl = document.getElementById("status");
 const dropZone = document.getElementById("dropZone");
-const progressBar = document.getElementById("progressBar");
 const fileInputFiles = document.getElementById("fileInputFiles");
 const fileInputDirs = document.getElementById("fileInputDirs");
 const cmdInput = document.getElementById("cmdInput");
+let currentStdinWriter = null;
+
+// --- ANSI parser ---
+function ansiToHtml(text) {
+  const ANSI_COLORS = {
+    "30": "black","31":"red","32":"green","33":"yellow","34":"blue",
+    "35":"magenta","36":"cyan","37":"white","90":"gray"
+  };
+  return text.replace(/\x1b\[(\d+)m/g, (_, code)=>`<span style="color:${ANSI_COLORS[code]||'inherit'}">`).replace(/\x1b\[0m/g,"</span>");
+}
 
 // --- append colored output ---
 function appendOutput(text, type="stdout") {
-  const span = document.createElement("span");
-  span.textContent = text + "\n";
-  span.style.color = type==="stderr"?"red":"lime";
-  outputEl.appendChild(span);
+  const html = ansiToHtml(text);
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  outputEl.appendChild(div);
   outputEl.scrollTop = outputEl.scrollHeight;
 }
 
@@ -64,13 +70,9 @@ async function streamToOutput(readable, type="stdout") {
     if (done) break;
     if (!value) continue;
     let chunk;
-    if (value instanceof Uint8Array) {
-      chunk = decoder.decode(value);
-    } else if (value.buffer instanceof ArrayBuffer) {
-      chunk = decoder.decode(new Uint8Array(value.buffer));
-    } else {
-      chunk = String(value);
-    }
+    if (value instanceof Uint8Array) chunk = decoder.decode(value);
+    else if (value.buffer instanceof ArrayBuffer) chunk = decoder.decode(new Uint8Array(value.buffer));
+    else chunk = String(value);
     appendOutput(chunk, type);
   }
 }
@@ -90,40 +92,39 @@ async function bootWebContainer() {
 // --- write files ---
 async function writeFiles(files) {
   const wc = await bootWebContainer();
-  const totalFiles = files.length;
-  let written = 0;
   for(const f of files) {
     const path = "/" + (f.webkitRelativePath||f.name);
     const dir = path.substring(0,path.lastIndexOf("/"));
     if(dir) await wc.fs.mkdir(dir, {recursive:true});
     const content = await f.text();
     await wc.fs.writeFile(path, content);
-    written++;
-    progressBar.style.width = Math.floor((written/totalFiles)*100)+"%";
-    statusEl.textContent = `Writing files: ${written}/${totalFiles}`;
     appendOutput(`Wrote: ${path}`);
   }
-  statusEl.textContent = "All files written.";
 }
 
 // --- install dependencies ---
 async function installDependencies(wc) {
   appendOutput("Installing npm dependencies...");
-  const proc = await wc.spawn("npm", ["install"]);
+  const proc = await wc.spawn("npm", ["install"], {stdin:"pipe"});
+  currentStdinWriter = proc.stdin.getWriter();
   await streamToOutput(proc.output);
+  await streamToOutput(proc.stderr,"stderr");
   const code = await proc.exit;
   appendOutput(`npm install exited with code ${code}`);
+  currentStdinWriter = null;
   return code;
 }
 
 // --- bundle project ---
 async function bundleProject(wc, entry) {
   appendOutput("Bundling project with esbuild...");
-  const outFile = "out.js";
-  const proc = await wc.spawn("npx", ["esbuild", entry, "--bundle", `--outfile=${outFile}`, "--platform=node","--format=cjs","--sourcemap"]);
+  const proc = await wc.spawn("npx", ["esbuild", entry, "--bundle", "--outfile=out.js", "--platform=node","--format=cjs","--sourcemap"], {stdin:"pipe"});
+  currentStdinWriter = proc.stdin.getWriter();
   await streamToOutput(proc.output);
+  await streamToOutput(proc.stderr,"stderr");
   const code = await proc.exit;
   appendOutput(`esbuild exited with code ${code}`);
+  currentStdinWriter = null;
   return code;
 }
 
@@ -131,10 +132,8 @@ async function bundleProject(wc, entry) {
 async function runProject(files) {
   const wc = await bootWebContainer();
   await writeFiles(files);
-  
   let entry = files.find(f=>f.name==="package.json")?.name || files.find(f=>f.name.endsWith(".js")||f.name.endsWith(".ts"))?.name;
   if(!entry) { appendOutput("No entry point found","stderr"); return; }
-
   entry = "/" + entry;
 
   if(files.some(f=>f.name==="package.json")) {
@@ -146,16 +145,17 @@ async function runProject(files) {
   if(bundleCode!==0) return appendOutput("Bundling failed","stderr");
 
   appendOutput("Running bundled out.js...");
-  const proc = await wc.spawn("node", ["out.js"]);
+  const proc = await wc.spawn("node", ["out.js"], {stdin:"pipe"});
+  currentStdinWriter = proc.stdin.getWriter();
   await streamToOutput(proc.output,"stdout");
   await streamToOutput(proc.stderr,"stderr");
+  await proc.exit;
+  currentStdinWriter = null;
   appendOutput("Process exited.\n");
 }
 
 // --- gather files ---
-function gatherFiles() {
-  return [...Array.from(fileInputFiles.files), ...Array.from(fileInputDirs.files)];
-}
+function gatherFiles() { return [...Array.from(fileInputFiles.files), ...Array.from(fileInputDirs.files)]; }
 
 // --- UI handlers ---
 document.getElementById("runBtn").onclick = async ()=> {
@@ -163,7 +163,7 @@ document.getElementById("runBtn").onclick = async ()=> {
   if(!files.length) return appendOutput("Please select files or folders","stderr");
   try { await runProject(files); } catch(e){ appendOutput("Error: "+e.message,"stderr"); }
 };
-document.getElementById("clearBtn").onclick = ()=> { outputEl.textContent=""; progressBar.style.width="0%"; statusEl.textContent="Idle"; };
+document.getElementById("clearBtn").onclick = ()=> { outputEl.textContent=""; statusEl.textContent="Idle"; };
 
 // --- drag/drop ---
 dropZone.addEventListener("dragover", e=>{e.preventDefault(); dropZone.classList.add("highlight");});
@@ -189,30 +189,33 @@ dropZone.addEventListener("drop", async e=>{
   await runProject(files);
 });
 
-// --- interactive terminal with command history ---
-let commandHistory = [];
-let historyIndex = -1;
+// --- interactive terminal ---
+let commandHistory=[],historyIndex=-1;
 cmdInput.addEventListener("keydown", async e=>{
-  if(e.key==="ArrowUp") { if(commandHistory.length>0){ historyIndex=Math.max(0,historyIndex-1); cmdInput.value=commandHistory[historyIndex]; } e.preventDefault(); return; }
-  if(e.key==="ArrowDown") { if(commandHistory.length>0){ historyIndex=Math.min(commandHistory.length-1,historyIndex+1); cmdInput.value=commandHistory[historyIndex]||""; } e.preventDefault(); return; }
+  if(e.key==="ArrowUp"){ if(commandHistory.length>0){ historyIndex=Math.max(0,historyIndex-1); cmdInput.value=commandHistory[historyIndex]; } e.preventDefault(); return; }
+  if(e.key==="ArrowDown"){ if(commandHistory.length>0){ historyIndex=Math.min(commandHistory.length-1,historyIndex+1); cmdInput.value=commandHistory[historyIndex]||""; } e.preventDefault(); return; }
   if(e.key!=="Enter") return;
 
   const cmd = cmdInput.value.trim();
   if(!cmd) return;
-  cmdInput.value="";
-  appendOutput("$ "+cmd,"stdout");
-
+  appendOutput("> "+cmd);
   commandHistory.push(cmd);
-  historyIndex = commandHistory.length;
-
-  try{
-    const wc = await bootWebContainer();
-    const parts = cmd.split(" ");
-    const proc = await wc.spawn(parts[0], parts.slice(1));
-    await streamToOutput(proc.output,"stdout");
-    await streamToOutput(proc.stderr,"stderr");
-    await proc.exit;
-  } catch(err){ appendOutput("Error: "+err.message,"stderr"); }
+  historyIndex=commandHistory.length;
+  cmdInput.value="";
+  if(currentStdinWriter){
+    await currentStdinWriter.write(new TextEncoder().encode(cmd+"\n"));
+  } else {
+    try {
+      const wc = await bootWebContainer();
+      const parts = cmd.split(" ");
+      const proc = await wc.spawn(parts[0], parts.slice(1), {stdin:"pipe"});
+      currentStdinWriter = proc.stdin.getWriter();
+      await streamToOutput(proc.output,"stdout");
+      await streamToOutput(proc.stderr,"stderr");
+      await proc.exit;
+      currentStdinWriter=null;
+    } catch(err){ appendOutput("Error: "+err.message,"stderr"); }
+  }
 });
 </script>
 </body>
