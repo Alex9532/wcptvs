@@ -23,19 +23,7 @@ button { cursor: pointer; margin-right: 0.5rem; }
 </style>
 </head>
 <body>
-  <script>
-            if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                    navigator.serviceWorker.register('/wcptvs/service-worker.js')
-                        .then(registration => {
-                            console.log('Service Worker registered with scope:', registration.scope);
-                        })
-                        .catch(error => {
-                            console.error('Service Worker registration failed:', error);
-                        });
-                });
-            }
-        </script>
+<script src="coi-serviceworker.js"></script>
 <div class="container">
   <h1>WebContainer File Runner (NPM + Bundling)</h1>
   <p class="small">Upload JS/TS projects or drag-and-drop files/folders. Dependencies are installed and bundled automatically.</p>
