@@ -44,7 +44,7 @@ Fixes:
     <div class="error" id="errorMsg"></div>
     <div class="output" id="output">(terminal output will appear here)</div>
   </div>
-<<script>
+<script>
 let webcontainer = null;
 let isBooted = false;
 
@@ -134,18 +134,18 @@ async function runProject(files) {
 
     try {
       const pkg = JSON.parse(pkgFile.content);
-      if (pkg.main) entry = pkg.main;
+      if (pkg.main) entry = pkg.main.startsWith("/") ? pkg.main : "/" + pkg.main;
     } catch {
       appendOutput("Failed to parse package.json, ignoring main field.\n");
     }
   }
 
-  // If no entry yet, recursively find first .js or .ts file
+  // Recursive search for first .js or .ts file if no entry yet
   if (!entry) {
     const jsTsFiles = files
       .map(f => f.path)
       .filter(p => p.endsWith(".js") || p.endsWith(".ts"))
-      .sort(); // deterministic order
+      .sort();
     if (jsTsFiles.length > 0) entry = jsTsFiles[0];
   }
 
@@ -181,13 +181,14 @@ document.getElementById("runBtn").onclick = async () => {
   }
 
   try {
-    // Convert FileList → array of plain objects with string content
+    // Read all files immediately into plain objects with string content
     const filesData = [];
     for (const file of fileInput.files) {
-      const text = await file.text();
+      const text = await file.text(); // <-- guaranteed string
       filesData.push({ path: "/" + file.webkitRelativePath, content: text });
     }
 
+    // Pass only plain serializable objects to runProject
     await runProject(filesData);
 
   } catch (err) {
