@@ -54,14 +54,24 @@ function appendOutput(text, type="stdout") {
   outputEl.scrollTop = outputEl.scrollHeight;
 }
 
-// --- stream safely ---
+// --- safe stream to output ---
 async function streamToOutput(readable, type="stdout") {
+  if (!readable) return;
   const reader = readable.getReader();
   const decoder = new TextDecoder();
-  while(true) {
-    const {done, value} = await reader.read();
-    if(done) break;
-    if(value) appendOutput(decoder.decode(value), type);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    let chunk;
+    if (value instanceof Uint8Array) {
+      chunk = decoder.decode(value);
+    } else if (value.buffer instanceof ArrayBuffer) {
+      chunk = decoder.decode(new Uint8Array(value.buffer));
+    } else {
+      chunk = String(value);
+    }
+    appendOutput(chunk, type);
   }
 }
 
@@ -106,7 +116,7 @@ async function installDependencies(wc) {
   return code;
 }
 
-// --- bundle ---
+// --- bundle project ---
 async function bundleProject(wc, entry) {
   appendOutput("Bundling project with esbuild...");
   const outFile = "out.js";
@@ -122,12 +132,11 @@ async function runProject(files) {
   const wc = await bootWebContainer();
   await writeFiles(files);
   
-  let entry = files.find(f=>f.name==="package.json")?.name||files.find(f=>f.name.endsWith(".js") || f.name.endsWith(".ts"))?.name;
+  let entry = files.find(f=>f.name==="package.json")?.name || files.find(f=>f.name.endsWith(".js")||f.name.endsWith(".ts"))?.name;
   if(!entry) { appendOutput("No entry point found","stderr"); return; }
 
   entry = "/" + entry;
 
-  // install deps if package.json exists
   if(files.some(f=>f.name==="package.json")) {
     const code = await installDependencies(wc);
     if(code!==0) return appendOutput("npm install failed","stderr");
@@ -138,15 +147,14 @@ async function runProject(files) {
 
   appendOutput("Running bundled out.js...");
   const proc = await wc.spawn("node", ["out.js"]);
-  await streamToOutput(proc.output, "stdout");
-  await streamToOutput(proc.stderr||new ReadableStream({start(c){c.close()}}), "stderr");
+  await streamToOutput(proc.output,"stdout");
+  await streamToOutput(proc.stderr,"stderr");
   appendOutput("Process exited.\n");
 }
 
 // --- gather files ---
 function gatherFiles() {
-  const arr = [...Array.from(fileInputFiles.files), ...Array.from(fileInputDirs.files)];
-  return arr;
+  return [...Array.from(fileInputFiles.files), ...Array.from(fileInputDirs.files)];
 }
 
 // --- UI handlers ---
@@ -181,13 +189,22 @@ dropZone.addEventListener("drop", async e=>{
   await runProject(files);
 });
 
-// --- interactive command input ---
+// --- interactive terminal with command history ---
+let commandHistory = [];
+let historyIndex = -1;
 cmdInput.addEventListener("keydown", async e=>{
+  if(e.key==="ArrowUp") { if(commandHistory.length>0){ historyIndex=Math.max(0,historyIndex-1); cmdInput.value=commandHistory[historyIndex]; } e.preventDefault(); return; }
+  if(e.key==="ArrowDown") { if(commandHistory.length>0){ historyIndex=Math.min(commandHistory.length-1,historyIndex+1); cmdInput.value=commandHistory[historyIndex]||""; } e.preventDefault(); return; }
   if(e.key!=="Enter") return;
+
   const cmd = cmdInput.value.trim();
   if(!cmd) return;
   cmdInput.value="";
   appendOutput("$ "+cmd,"stdout");
+
+  commandHistory.push(cmd);
+  historyIndex = commandHistory.length;
+
   try{
     const wc = await bootWebContainer();
     const parts = cmd.split(" ");
