@@ -44,7 +44,7 @@ Fixes:
     <div class="error" id="errorMsg"></div>
     <div class="output" id="output">(terminal output will appear here)</div>
   </div>
-<script>
+<<script>
 let webcontainer = null;
 let isBooted = false;
 
@@ -113,7 +113,7 @@ async function bundleProject(wc, entry) {
 async function runProject(files) {
   const wc = await bootWebContainer();
 
-  // files is already an array of { path, content } → safe
+  // Write all files to WebContainer FS
   for (const file of files) {
     const dir = file.path.substring(0, file.path.lastIndexOf("/"));
     if (dir) await wc.fs.mkdir(dir, { recursive: true });
@@ -121,10 +121,10 @@ async function runProject(files) {
     appendOutput("Wrote: " + file.path + "\n");
   }
 
-  // Detect entry point
-  const pkgFile = files.find(f => f.path.endsWith("package.json"));
+  // Determine entry point
   let entry = null;
 
+  const pkgFile = files.find(f => f.path.endsWith("package.json"));
   if (pkgFile) {
     const code = await installDependencies(wc);
     if (code !== 0) {
@@ -140,15 +140,13 @@ async function runProject(files) {
     }
   }
 
-  // Fallback to common JS/TS entry points
+  // If no entry yet, recursively find first .js or .ts file
   if (!entry) {
-    const candidates = ["index.js", "index.ts", "src/index.js", "src/index.ts"];
-    for (const c of candidates) {
-      if (files.some(f => f.path.endsWith(c))) {
-        entry = c;
-        break;
-      }
-    }
+    const jsTsFiles = files
+      .map(f => f.path)
+      .filter(p => p.endsWith(".js") || p.endsWith(".ts"))
+      .sort(); // deterministic order
+    if (jsTsFiles.length > 0) entry = jsTsFiles[0];
   }
 
   if (!entry) {
@@ -173,7 +171,7 @@ async function runProject(files) {
   }));
   const exitCode = await runProc.exit;
   appendOutput("Process exited with code " + exitCode + "\n");
-}
+};
 
 // --- UI EVENTS ---
 document.getElementById("runBtn").onclick = async () => {
@@ -183,15 +181,13 @@ document.getElementById("runBtn").onclick = async () => {
   }
 
   try {
-    // Convert FileList → array of plain objects to prevent DataCloneError
-    const filesData = await Promise.all(
-      Array.from(fileInput.files).map(async file => ({
-        path: "/" + file.webkitRelativePath,
-        content: await file.text()
-      }))
-    );
+    // Convert FileList → array of plain objects with string content
+    const filesData = [];
+    for (const file of fileInput.files) {
+      const text = await file.text();
+      filesData.push({ path: "/" + file.webkitRelativePath, content: text });
+    }
 
-    // Run project safely
     await runProject(filesData);
 
   } catch (err) {
