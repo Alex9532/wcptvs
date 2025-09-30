@@ -195,7 +195,8 @@ document.getElementById("runBtn").onclick = async () => {
     appendOutput("Please choose a project folder.\n");
     return;
   }
-  await runProject(fileInput.files);
+  // Convert FileList → Array before passing to runProject
+  await runProject(Array.from(fileInput.files));
 };
 
 document.getElementById("clearBtn").onclick = () => {
