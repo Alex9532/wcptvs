@@ -110,7 +110,7 @@ async function bundleProject(wc, entry) {
     "esbuild",
     entry,
     "--bundle",
-    `--outfile=${outFile}`,
+    "--outfile=${outFile}",
     "--platform=node",
     "--format=cjs",
     "--sourcemap"
