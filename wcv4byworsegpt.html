@@ -45,58 +45,54 @@ Fixes:
     <div class="output" id="output">(terminal output will appear here)</div>
   </div>
 <script>
-  let webcontainer = null;
-  let isBooted = false;
+let webcontainer = null;
+let isBooted = false;
 
-  const outputEl = document.getElementById("output");
-  const statusEl = document.getElementById("status");
-  const errorEl = document.getElementById("errorMsg");
-  const fileInput = document.getElementById("fileInput");
+const outputEl = document.getElementById("output");
+const statusEl = document.getElementById("status");
+const errorEl = document.getElementById("errorMsg");
+const fileInput = document.getElementById("fileInput");
 
-  function appendOutput(text) {
-    outputEl.textContent += text;
-    outputEl.scrollTop = outputEl.scrollHeight;
+function appendOutput(text) {
+  outputEl.textContent += text;
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+async function bootWebContainer() {
+  if (isBooted) return webcontainer;
+  appendOutput("Booting WebContainer...\n");
+  try {
+    const url = "https://unpkg.com/@webcontainer/api@1.1.0/dist/index.js";
+    // @vite-ignore
+    const { WebContainer } = await import(/* webpackIgnore: true */ url);
+    const wc = await WebContainer.boot({});
+    webcontainer = wc;
+    isBooted = true;
+    statusEl.textContent = "Status: WebContainer ready";
+    appendOutput("WebContainer booted.\n");
+    return wc;
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    errorEl.textContent = "Last error: " + msg;
+    appendOutput("Failed to boot WebContainer: " + msg + "\n");
+    throw err;
   }
+}
 
-  async function bootWebContainer() {
-    if (isBooted) return webcontainer;
-    appendOutput("Booting WebContainer...\n");
-    try {
-      const url = "https://unpkg.com/@webcontainer/api@1.1.0/dist/index.js";
-      // @vite-ignore
-      const { WebContainer } = await import(/* webpackIgnore: true */ url);
-      const wc = await WebContainer.boot({});
-      webcontainer = wc;
-      isBooted = true;
-      statusEl.textContent = "Status: WebContainer ready";
-      appendOutput("WebContainer booted.\n");
-      return wc;
-    } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      errorEl.textContent = "Last error: " + msg;
-      appendOutput("Failed to boot WebContainer: " + msg + "\n");
-      throw err;
-    }
-  }
+async function installDependencies(wc) {
+  appendOutput("Installing npm dependencies...\n");
+  const installProc = await wc.spawn("npm", ["install"]);
+  installProc.output.pipeTo(new WritableStream({
+    write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
+  }));
+  const exitCode = await installProc.exit;
+  appendOutput("npm install exited with code " + exitCode + "\n");
+  return exitCode;
+}
 
-  async function installDependencies(wc) {
-    appendOutput("Installing npm dependencies...\n");
-    const installProc = await wc.spawn("npm", ["install"]);
-    installProc.output.pipeTo(new WritableStream({
-      write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
-    }));
-    const exitCode = await installProc.exit;
-    appendOutput("npm install exited with code " + exitCode + "\n");
-    return exitCode;
-  }
-
-  async function bundleProject(wc, entry) {
+async function bundleProject(wc, entry) {
   appendOutput("Bundling project with esbuild...\n");
-
-  // Determine output format based on extension (optional, mostly for TS)
   const outFile = "out.js";
-
-  // Run esbuild inside WebContainer
   const bundleProc = await wc.spawn("npx", [
     "esbuild",
     entry,
@@ -106,73 +102,95 @@ Fixes:
     "--format=cjs",
     "--sourcemap"
   ]);
-
-  // Pipe output to our terminal
   bundleProc.output.pipeTo(new WritableStream({
     write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
   }));
-
   const exitCode = await bundleProc.exit;
   appendOutput("esbuild exited with code " + exitCode + "\n");
   return exitCode;
 }
 
-  async function runProject(files) {
-    const wc = await bootWebContainer();
+async function runProject(files) {
+  const wc = await bootWebContainer();
 
-    // Convert File objects into plain objects { path, content }
-    const fileData = await Promise.all(files.map(async file => ({
-      path: "/" + file.webkitRelativePath,
-      content: await file.text()
-    })));
+  // Convert File objects into simple { path, content } objects to avoid DataCloneError
+  const fileData = await Promise.all(files.map(async file => ({
+    path: "/" + file.webkitRelativePath,
+    content: await file.text()
+  })));
 
-    // Write all files to WebContainer FS
-    for (const file of fileData) {
-      const dir = file.path.substring(0, file.path.lastIndexOf("/"));
-      if (dir) await wc.fs.mkdir(dir, { recursive: true });
-      await wc.fs.writeFile(file.path, file.content);
-      appendOutput("Wrote: " + file.path + "\n");
-    }
-
-    // Check if package.json exists
-    const hasPackageJson = fileData.some(f => f.path.endsWith("package.json"));
-    if (hasPackageJson) {
-      const code = await installDependencies(wc);
-      if (code !== 0) {
-        appendOutput("npm install failed, aborting.\n");
-        return;
-      }
-    }
-
-    // Assume index.js as entry point
-    const entry = "index.js";
-    const bundleCode = await bundleProject(wc, entry);
-    if (bundleCode !== 0) {
-      appendOutput("Bundling failed, aborting.\n");
-      return;
-    }
-
-    appendOutput("Running bundled out.js...\n");
-    const runProc = await wc.spawn("node", ["out.js"]);
-    runProc.output.pipeTo(new WritableStream({
-      write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
-    }));
-    const exitCode = await runProc.exit;
-    appendOutput("Process exited with code " + exitCode + "\n");
+  // Write files to WebContainer FS
+  for (const file of fileData) {
+    const dir = file.path.substring(0, file.path.lastIndexOf("/"));
+    if (dir) await wc.fs.mkdir(dir, { recursive: true });
+    await wc.fs.writeFile(file.path, file.content);
+    appendOutput("Wrote: " + file.path + "\n");
   }
 
-  document.getElementById("runBtn").onclick = async () => {
-    if (!fileInput.files.length) {
-      appendOutput("Please choose a project folder.\n");
+  // Check if package.json exists
+  const pkgFile = fileData.find(f => f.path.endsWith("package.json"));
+  let entry = null;
+
+  if (pkgFile) {
+    const code = await installDependencies(wc);
+    if (code !== 0) {
+      appendOutput("npm install failed, aborting.\n");
       return;
     }
-    await runProject(Array.from(fileInput.files));
-  };
 
-  document.getElementById("clearBtn").onclick = () => {
-    outputEl.textContent = "";
-    errorEl.textContent = "";
-  };
+    try {
+      const pkg = JSON.parse(pkgFile.content);
+      if (pkg.main) entry = pkg.main;
+    } catch (err) {
+      appendOutput("Failed to parse package.json, ignoring main field.\n");
+    }
+  }
+
+  // Fallback to common JS/TS entry points if main is not specified
+  if (!entry) {
+    const candidates = ["index.js", "index.ts", "src/index.js", "src/index.ts"];
+    for (const c of candidates) {
+      if (fileData.some(f => f.path.endsWith(c))) {
+        entry = c;
+        break;
+      }
+    }
+  }
+
+  if (!entry) {
+    appendOutput("No entry point found, aborting.\n");
+    return;
+  }
+
+  appendOutput("Detected entry point: " + entry + "\n");
+
+  const bundleCode = await bundleProject(wc, entry);
+  if (bundleCode !== 0) {
+    appendOutput("Bundling failed, aborting.\n");
+    return;
+  }
+
+  appendOutput("Running bundled out.js...\n");
+  const runProc = await wc.spawn("node", ["out.js"]);
+  runProc.output.pipeTo(new WritableStream({
+    write(chunk) { appendOutput(new TextDecoder().decode(chunk)); }
+  }));
+  const exitCode = await runProc.exit;
+  appendOutput("Process exited with code " + exitCode + "\n");
+}
+
+document.getElementById("runBtn").onclick = async () => {
+  if (!fileInput.files.length) {
+    appendOutput("Please choose a project folder.\n");
+    return;
+  }
+  await runProject(Array.from(fileInput.files));
+};
+
+document.getElementById("clearBtn").onclick = () => {
+  outputEl.textContent = "";
+  errorEl.textContent = "";
+};
 </script>
 </body>
 </html>
