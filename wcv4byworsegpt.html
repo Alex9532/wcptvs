@@ -35,7 +35,8 @@ Fixes:
     <p class="small">Upload JavaScript/TypeScript projects. If <code>package.json</code> is included, dependencies are installed inside the WebContainer and the project is bundled with esbuild before execution.</p>
 
     <div class="controls">
-      <input id="fileInput" type="file" accept="*/*" webkitdirectory directory multiple>
+      <input id="fileInputFiles" type="file" multiple>
+      <input id="fileInputDirs" type="file" webkitdirectory directory multiple>
       <button id="runBtn" class="btn btn-primary">Run project</button>
       <button id="clearBtn" class="btn" style="margin-left:auto;">Clear output</button>
     </div>
@@ -51,7 +52,17 @@ let isBooted = false;
 const outputEl = document.getElementById("output");
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("errorMsg");
-const fileInput = document.getElementById("fileInput");
+document.getElementById("runBtn").onclick = async () => {
+  const filesArray = [
+    ...Array.from(document.getElementById("fileInputFiles").files),
+    ...Array.from(document.getElementById("fileInputDirs").files)
+  ];
+
+  if (!filesArray.length) {
+    appendOutput("Please select files or directories.\n");
+    return;
+  }
+const fileInput = document.getElementById("filesArray");
 
 function appendOutput(text) {
   outputEl.textContent += text;
