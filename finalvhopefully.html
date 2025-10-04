@@ -145,17 +145,18 @@
   }
 
   // Helper to stream data into output box
-  function streamToOutput(stream) {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    (async () => {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) appendOutput(decoder.decode(value));
-      }
-    })();
+ async function streamToOutput(stream) {
+  if (!stream) return; // avoid "undefined.getReader" error
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) {
+      appendOutput(decoder.decode(value));
+    }
   }
+}
 
   async function gatherFiles() {
     return [
