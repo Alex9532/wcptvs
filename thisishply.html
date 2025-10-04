@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WebContainer Interactive Terminal</title>
+<style>
+  body {
+    font-family: monospace;
+    background: #0f111a;
+    color: #e0e0e0;
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    padding: 10px;
+  }
+  #cmdInput {
+    border: none;
+    border-top: 1px solid #444;
+    padding: 10px;
+    background: #1a1c25;
+    color: #fff;
+    font-family: monospace;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  #dropZone {
+    border: 2px dashed #555;
+    margin: 10px;
+    padding: 10px;
+    text-align: center;
+    color: #777;
+  }
+</style>
+</head>
+<body>
+  <div id="dropZone">📁 Drag and drop files or folders here</div>
+  <div id="output"></div>
+  <input id="cmdInput" placeholder="Type a command and press Enter..." autocomplete="off" />
+
+<script type="module">
+import { WebContainer } from 'https://cdn.jsdelivr.net/npm/@webcontainer/api@1.1.7/dist/index.min.js';
+
+let webcontainerInstance;
+let currentStdinWriter = null;
+
+// --- Utility: ANSI → HTML ---
+function ansiToHtml(text) {
+  return text
+    .replace(/\u001b\[([0-9;]*)m/g, (m, g1) => {
+      const codes = g1.split(";").map(Number);
+      let color = "";
+      for (const code of codes) {
+        if (code >= 30 && code <= 37) color = `color:var(--ansi-${code - 30})`;
+        else if (code === 0) color = "color:inherit";
+      }
+      return `<span style="${color}">`;
+    })
+    .replace(/\u001b\[0m/g, "</span>");
+}
+
+const ansiColors = {
+  "--ansi-0": "#000",
+  "--ansi-1": "#c00",
+  "--ansi-2": "#0c0",
+  "--ansi-3": "#cc0",
+  "--ansi-4": "#00c",
+  "--ansi-5": "#c0c",
+  "--ansi-6": "#0cc",
+  "--ansi-7": "#fff"
+};
+for (const [key, val] of Object.entries(ansiColors)) {
+  document.body.style.setProperty(key, val);
+}
+
+// --- Boot WebContainer ---
+async function bootWebContainer() {
+  if (!webcontainerInstance) {
+    webcontainerInstance = await WebContainer.boot();
+  }
+  return webcontainerInstance;
+}
+
+// --- Stream helpers (safe) ---
+async function streamToOutput(stream) {
+  if (!stream) return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) appendOutput(decoder.decode(value));
+  }
+}
+
+// --- Append text to output ---
+function appendOutput(text) {
+  const el = document.createElement("div");
+  el.innerHTML = ansiToHtml(text);
+  document.getElementById("output").appendChild(el);
+  el.scrollIntoView();
+}
+
+// --- Recursively write files to FS ---
+async function writeFileRecursive(wc, path, file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  await wc.fs.writeFile(path, uint8Array);
+}
+
+// --- Handle dropped files or folders ---
+document.getElementById("dropZone").addEventListener("drop", async e => {
+  e.preventDefault();
+  const items = e.dataTransfer.items;
+  const files = [];
+
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.();
+    if (entry) await traverseEntry(entry, "", files);
+  }
+
+  await runProject(files);
+});
+
+document.getElementById("dropZone").addEventListener("dragover", e => e.preventDefault());
+
+async function traverseEntry(entry, path, files) {
+  if (entry.isFile) {
+    await new Promise(res => entry.file(f => {
+      files.push({ path: `${path}${f.name}`, file: f });
+      res();
+    }));
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const entries = await new Promise(res => reader.readEntries(res));
+    for (const e of entries) {
+      await traverseEntry(e, `${path}${entry.name}/`, files);
+    }
+  }
+}
+
+// --- Run a project ---
+async function runProject(files) {
+  const wc = await bootWebContainer();
+  for (const { path, file } of files) {
+    await wc.fs.mkdir(path.split("/").slice(0, -1).join("/"), { recursive: true });
+    await writeFileRecursive(wc, path, file);
+  }
+  appendOutput("✅ Files loaded. Type commands below.\n");
+
+  // Spawn interactive shell
+  const proc = await wc.spawn("bash", { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  currentStdinWriter = proc.stdin.getWriter();
+  streamToOutput(proc.output);
+  streamToOutput(proc.stderr);
+
+  proc.exit.then(() => {
+    appendOutput("\n[process exited]\n");
+    currentStdinWriter = null;
+  });
+}
+
+// --- Interactive terminal input ---
+const cmdInput = document.getElementById("cmdInput");
+cmdInput.addEventListener("keydown", async e => {
+  if (e.key === "Enter") {
+    const cmd = cmdInput.value.trim();
+    cmdInput.value = "";
+
+    if (currentStdinWriter) {
+      await currentStdinWriter.write(new TextEncoder().encode(cmd + "\n"));
+    } else {
+      const wc = await bootWebContainer();
+      const proc = await wc.spawn("bash", { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      currentStdinWriter = proc.stdin.getWriter();
+      streamToOutput(proc.output);
+      streamToOutput(proc.stderr);
+
+      await currentStdinWriter.write(new TextEncoder().encode(cmd + "\n"));
+      proc.exit.then(() => {
+        appendOutput("\n[process exited]\n");
+        currentStdinWriter = null;
+      });
+    }
+  }
+});
+</script>
+</body>
+</html>
