@@ -1,193 +1,107 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>WebContainer Runner — Interactive</title>
-<style>
-  :root{
-    --bg:#0f1114; --panel:#15181b; --muted:#9aa3ad; --accent:#2563eb;
-    --stdout:#c8facc; --stderr:#ffb4b4; --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
-  }
-  html,body{height:100%;margin:0;background:var(--bg);font-family:var(--mono);color:#e6eef6}
-  .page{max-width:1100px;margin:16px auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-  header{display:flex;align-items:center;gap:12px}
-  h1{font-size:1.1rem;margin:0;color:#fff}
-  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  label.small{font-size:0.85rem;color:var(--muted)}
-  input[type="file"]{color:var(--muted)}
-  .btn{background:transparent;border:1px solid #333;padding:8px 10px;border-radius:6px;color:#e6eef6;cursor:pointer}
-  .btn-primary{background:var(--accent);border-color:var(--accent);color:white}
-  .row{display:flex;gap:12px;align-items:center}
-  #dropZone{border:2px dashed #2b2f33;background:var(--panel);padding:18px;text-align:center;color:var(--muted);border-radius:8px}
-  #dropZone.highlight{border-color:var(--accent);box-shadow:0 0 12px rgba(37,99,235,0.08)}
-  .progress{height:10px;background:#222;border-radius:6px;overflow:hidden;margin-top:6px}
-  .progress > i{display:block;height:100%;width:0;background:var(--accent)}
-  .output{background:black;border-radius:8px;padding:12px;min-height:300px;max-height:520px;overflow:auto;white-space:pre-wrap;color:var(--muted)}
-  .terminalRow{display:flex;gap:8px;align-items:center}
-  #cmdInput{flex:1;padding:10px;border-radius:8px;border:1px solid #222;background:#0b0b0c;color:#dfffdc}
-  .options{display:flex;gap:8px;align-items:center}
-  .muted{color:var(--muted);font-size:0.9rem}
-  footer{font-size:0.85rem;color:var(--muted);margin-top:6px}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WebContainer File Runner (Interactive) — Fixed</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; margin: 0; padding: 1rem; }
+    .container { max-width: 900px; margin: auto; background: #1e1e1e; padding: 1rem; border-radius: 0.5rem; }
+    h1 { font-size: 1.2rem; margin-bottom: 1rem; color: #90caf9; }
+    .controls { margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .btn { padding: 0.4rem 0.8rem; background: #333; border: 1px solid #555; border-radius: 0.3rem; cursor: pointer; color: #eee; }
+    .btn-primary { background: #1976d2; border-color: #1976d2; color: white; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #dropZone { border: 2px dashed #444; border-radius: 0.5rem; padding: 1rem; text-align: center; margin-bottom: 1rem; color: #aaa; }
+    #dropZone.highlight { background: #222; border-color: #90caf9; color: #90caf9; }
+    .output { background: #000; color: #eee; font-family: monospace; padding: 1rem; border-radius: 0.3rem; height: 400px; overflow-y: auto; white-space: pre-wrap; }
+    .terminal { display: flex; margin-top: 0.5rem; }
+    #cmdInput { flex: 1; padding: 0.4rem; background: #111; color: #eee; border: 1px solid #444; border-radius: 0.3rem; font-family: monospace; }
+    .muted { color: #9aa3ad; font-size: 0.9rem; }
+  </style>
 </head>
 <body>
-  <div class="page">
-    <header>
-      <h1>WebContainer Runner — Interactive</h1>
-      <div class="muted">(Files → container, optional esbuild, `npm start`, interactive stdin + ANSI colors)</div>
-    </header>
+  <div class="container">
+    <h1>WebContainer File Runner (Interactive) — Fixed</h1>
 
-    <div id="dropZone">Drag & drop files or folders here (or use the file inputs below)</div>
+    <div id="dropZone">Drag & drop files or folders here</div>
 
     <div class="controls">
-      <div class="row">
-        <label class="small">Files:</label>
-        <input id="fileInputFiles" type="file" multiple />
-      </div>
-
-      <div class="row">
-        <label class="small">Folders:</label>
-        <input id="fileInputDirs" type="file" webkitdirectory directory multiple />
-      </div>
-
-      <div class="row">
-        <button id="runBtn" class="btn btn-primary">Run Project (npm install → optional esbuild → npm start)</button>
-        <button id="clearBtn" class="btn">Clear Output</button>
-      </div>
-
-      <div class="options">
-        <label class="small"><input id="useEsbuild" type="checkbox" checked /> Use esbuild</label>
-        <label class="small"><input id="verboseLogs" type="checkbox" /> Verbose logs</label>
-      </div>
+      <label>Files: <input id="fileInputFiles" type="file" multiple></label>
+      <label>Folders: <input id="fileInputDirs" type="file" webkitdirectory directory multiple></label>
+      <button id="runBtn" class="btn btn-primary">Run project</button>
+      <button id="clearBtn" class="btn">Clear output</button>
+      <label class="muted" style="margin-left:8px;"><input id="useEsbuild" type="checkbox" checked> Use esbuild</label>
     </div>
 
-    <div class="muted">File write progress:</div>
-    <div class="progress"><i id="progressBar"></i></div>
+    <div id="output" class="output">(terminal output will appear here)</div>
 
-    <div id="output" class="output" aria-live="polite">(terminal output will appear here)</div>
-
-    <div class="terminalRow">
-      <input id="cmdInput" placeholder="Type command and press Enter. Arrow ↑/↓ for history. If no process running, a shell will be created." autocomplete="off" />
+    <div class="terminal">
+      <input id="cmdInput" type="text" placeholder="Type commands here (press Enter to send). Arrow ↑/↓ for history." autocomplete="off"/>
     </div>
-
-    <footer class="muted">Tip: select a folder containing package.json and run. Use the terminal to answer prompts.</footer>
   </div>
 
 <script type="module">
-/* Full end-to-end runner:
-   - Boots WebContainer
-   - Accepts files/folders and drag-drop
-   - Writes files to the container file system (streams)
-   - Run Project: npm install -> optional esbuild -> npm start
-   - Interactive terminal with stdin piping (persistent writer)
-   - ANSI color parsing and safe streaming, guarded for undefined streams
-   - Command history
-*/
+import { WebContainer } from "https://unpkg.com/@webcontainer/api@1.1.7/dist/index.js";
 
-/* --------- Import WebContainer (CDN) --------- */
-import { WebContainer } from 'https://unpkg.com/@webcontainer/api@1.1.7/dist/index.min.js';
-
-/* --------- UI elements --------- */
-const dropZone = document.getElementById('dropZone');
-const fileInputFiles = document.getElementById('fileInputFiles');
-const fileInputDirs = document.getElementById('fileInputDirs');
-const runBtn = document.getElementById('runBtn');
-const clearBtn = document.getElementById('clearBtn');
-const outputEl = document.getElementById('output');
-const cmdInput = document.getElementById('cmdInput');
-const progressBar = document.getElementById('progressBar');
-const useEsbuildCheckbox = document.getElementById('useEsbuild');
-const verboseLogsCheckbox = document.getElementById('verboseLogs');
-
-/* --------- State --------- */
-let wc = null;
+let webcontainer = null;
 let isBooted = false;
-let currentStdinWriter = null; // writer for currently active process stdin
-let currentProc = null;        // optionally keep proc reference
-let lastDroppedFiles = [];     // { path, file } from drag/drop
+let currentStdinWriter = null;
+let currentProc = null;
 let commandHistory = [];
 let historyIndex = 0;
 
-/* --------- Helpers: append output with ANSI parsing --------- */
-function escapeHtml(s) {
-  return s.replace(/[&<>]/g, ch => ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;');
-}
+const outputEl = document.getElementById("output");
+const cmdInput = document.getElementById("cmdInput");
+const dropZone = document.getElementById("dropZone");
+const fileInputFiles = document.getElementById("fileInputFiles");
+const fileInputDirs = document.getElementById("fileInputDirs");
+const runBtn = document.getElementById("runBtn");
+const clearBtn = document.getElementById("clearBtn");
+const useEsbuild = document.getElementById("useEsbuild");
 
-/* Simple ANSI parser: handles many common CSI color codes (30-37, 90-97), reset (0), bold (1).
-   This keeps output clean and avoids visible escape artifacts.
-   Not a full terminal emulator, but enough for colored npm/esbuild output.
-*/
-function ansiToHtml(s) {
-  if (!s) return '';
-  // Replace known sequences
-  // Convert ESC[0m -> </span>
+// --- simple ANSI -> HTML mapping (keeps output readable) ---
+function escapeHtml(s){ return s.replace(/[&<>]/g, ch => ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;'); }
+function ansiToHtml(s){
+  if(!s) return '';
   s = escapeHtml(s);
-  // Replace reset
-  s = s.replace(/\x1b\[0m/g, '</span>');
-
-  // Bold
-  s = s.replace(/\x1b\[1m/g, '<span style="font-weight:bold">');
-
-  // Foreground 30-37
-  const fgMap = {
-    30: '#000000', 31: '#c92c2c', 32: '#24a148', 33: '#d69d00',
-    34: '#2563eb', 35: '#7c3aed', 36: '#0ea5a4', 37: '#e6eef6'
-  };
-  for (const code in fgMap) {
-    s = s.replace(new RegExp(`\\x1b\\[${code}m`, 'g'), `<span style="color:${fgMap[code]}">`);
-  }
-  // Bright fg 90-97
-  const fgBright = {
-    90:'#6b7280',91:'#ff7b7b',92:'#6af28a',93:'#ffee7a',94:'#7fbfff',95:'#caa2ff',96:'#7ef0f0',97:'#ffffff'
-  };
-  for (const code in fgBright) {
-    s = s.replace(new RegExp(`\\x1b\\[${code}m`, 'g'), `<span style="color:${fgBright[code]}">`);
-  }
-
-  // Background colors 40-47
-  const bgMap = {
-    40:'#000000',41:'#c92c2c',42:'#24a148',43:'#d69d00',
-    44:'#2563eb',45:'#7c3aed',46:'#0ea5a4',47:'#e6eef6'
-  };
-  for (const code in bgMap) {
-    s = s.replace(new RegExp(`\\x1b\\[${code}m`, 'g'), `<span style="background:${bgMap[code]}">`);
-  }
-
-  // Remove other CSI sequences gracefully (like color256 or cursor movement) to avoid artifacts
-  s = s.replace(/\x1b\[[\d;]*[A-Za-z]/g, ''); // generic remove for unknown sequences
-
+  s = s.replace(/\u001b\[0m/g, '</span>');
+  s = s.replace(/\u001b\[1m/g, '<span style="font-weight:bold">');
+  s = s.replace(/\u001b\[31m/g, '<span style="color:#f44336">');
+  s = s.replace(/\u001b\[32m/g, '<span style="color:#4caf50">');
+  s = s.replace(/\u001b\[33m/g, '<span style="color:#ffeb3b">');
+  s = s.replace(/\u001b\[34m/g, '<span style="color:#2196f3">');
+  s = s.replace(/\u001b\[35m/g, '<span style="color:#e91e63">');
+  s = s.replace(/\u001b\[36m/g, '<span style="color:#00bcd4">');
+  // remove other CSI sequences to avoid artifacts
+  s = s.replace(/\u001b\[[\d;]*[A-Za-z]/g, '');
   return s;
 }
 
-function appendOutput(raw) {
-  // raw may contain newlines; split to preserve block structure
-  const html = ansiToHtml(raw);
-  // append as HTML block
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = html;
-  outputEl.appendChild(wrapper);
-  // auto-scroll
-  wrapper.scrollIntoView({ block: "end" });
+function appendOutput(text){
+  const html = ansiToHtml(text);
+  const node = document.createElement('div');
+  node.innerHTML = html;
+  outputEl.appendChild(node);
+  node.scrollIntoView({ block: "end" });
 }
 
-/* --------- Safe stream reader --------- */
-async function streamToOutput(stream) {
+/* --- safe streamToOutput: guards against undefined streams/getReader --- */
+async function streamToOutput(stream){
   if (!stream) return;
-  // some WebContainer APIs name streams differently; guard robustly
-  const reader = stream.getReader?.();
-  if (!reader) return;
-
+  // ensure it's a ReadableStream with getReader
+  if (typeof stream.getReader !== 'function') return;
+  const reader = stream.getReader();
   const decoder = new TextDecoder();
   while (true) {
-    let res;
+    let result;
     try {
-      res = await reader.read();
+      result = await reader.read();
     } catch (err) {
-      appendOutput(`\n[stream read error] ${err.message}\n`);
+      appendOutput(`[stream error] ${err?.message || err}\n`);
       break;
     }
-    const { value, done } = res;
+    const { value, done } = result;
     if (done) break;
     if (!value) continue;
     let chunk;
@@ -198,136 +112,122 @@ async function streamToOutput(stream) {
   }
 }
 
-/* --------- Boot WebContainer (once) --------- */
-async function boot() {
-  if (isBooted && wc) return wc;
+/* --- boot container once --- */
+async function bootWebContainer(){
+  if (isBooted && webcontainer) return webcontainer;
   appendOutput('Booting WebContainer...\n');
-  wc = await WebContainer.boot();
+  webcontainer = await WebContainer.boot();
   isBooted = true;
   appendOutput('WebContainer ready.\n');
-  return wc;
+  return webcontainer;
 }
 
-/* --------- Helpers to convert FileList -> {path,file} list --------- */
-function filesFromInputs() {
-  const arr = [];
-  for (const f of fileInputFiles.files) {
-    const path = f.webkitRelativePath && f.webkitRelativePath.length ? '/' + f.webkitRelativePath : '/' + f.name;
-    arr.push({ path, file: f });
-  }
-  for (const f of fileInputDirs.files) {
-    const path = f.webkitRelativePath && f.webkitRelativePath.length ? '/' + f.webkitRelativePath : '/' + f.name;
-    arr.push({ path, file: f });
-  }
-  // include last dropped files (drag-drop)
-  for (const d of lastDroppedFiles) arr.push(d);
-  return arr;
-}
-
-/* --------- Write files to container (one-by-one to avoid memory spikes) --------- */
-async function writeFilesToContainer(files) {
-  const container = await boot();
-  const total = files.length;
-  let done = 0;
-  progressBar.style.width = '0%';
-
-  for (const { path, file } of files) {
+/* --- write files into container safely, one-by-one --- */
+async function writeFilesToContainer(files){
+  const wc = await bootWebContainer();
+  for(const f of files){
+    // f may be a File from input or drag/drop
+    const path = (f.path) ? f.path : ('/' + (f.webkitRelativePath || f.name));
     const dir = path.substring(0, path.lastIndexOf('/')) || '/';
     try {
-      if (dir) await container.fs.mkdir(dir, { recursive: true });
-      // read as arrayBuffer (one file at a time)
-      const ab = await file.arrayBuffer();
+      if (dir) await wc.fs.mkdir(dir, { recursive: true });
+      // write as Uint8Array to avoid encoding surprises
+      const ab = await (f.file ? f.file.arrayBuffer() : f.arrayBuffer());
       const u8 = new Uint8Array(ab);
-      await container.fs.writeFile(path, u8);
-      done++;
-      progressBar.style.width = Math.floor((done / total) * 100) + '%';
-      appendOutput(`Wrote [${done}/${total}]: ${path}\n`);
+      await wc.fs.writeFile(path, u8);
+      appendOutput(`Wrote: ${path}\n`);
     } catch (err) {
-      appendOutput(`Error writing ${path}: ${err.message}\n`);
+      appendOutput(`Write error (${path}): ${err?.message || err}\n`);
     }
   }
-  appendOutput('All files written.\n');
 }
 
-/* --------- Run Project flow --------- */
-async function runProjectFlow() {
-  const files = filesFromInputs();
-  if (!files.length) {
-    appendOutput('No files selected. Drop a folder with package.json or select files.\n');
-    return;
-  }
+/* --- spawn helper that requests pipes and sets currentStdinWriter safely --- */
+function safeSpawn(wc, cmd, args = []) {
+  return wc.spawn(cmd, args, { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+}
 
-  const container = await boot();
-  // write files
+/* --- install dependencies --- */
+async function installDependencies(wc){
+  appendOutput('Installing npm dependencies...\n');
+  const proc = await safeSpawn(wc, 'npm', ['install']);
+  if (proc.stdin) currentStdinWriter = proc.stdin.getWriter();
+  streamToOutput(proc.output);
+  streamToOutput(proc.stderr);
+  const exit = await proc.exit;
+  appendOutput(`npm install exited with code ${exit}\n`);
+  currentStdinWriter = null;
+  return exit;
+}
+
+/* --- run esbuild (optional) --- */
+async function bundleProject(wc, entry){
+  appendOutput(`Bundling with esbuild: ${entry}\n`);
+  const proc = await safeSpawn(wc, 'npx', ['esbuild', entry, '--bundle', '--outfile=out.js', '--platform=node', '--format=cjs', '--sourcemap']);
+  if (proc.stdin) currentStdinWriter = proc.stdin.getWriter();
+  streamToOutput(proc.output);
+  streamToOutput(proc.stderr);
+  const exit = await proc.exit;
+  appendOutput(`esbuild exited with code ${exit}\n`);
+  currentStdinWriter = null;
+  return exit;
+}
+
+/* --- run project: write files -> npm install -> optional esbuild -> npm start --- */
+async function runProject(files){
+  const wc = await bootWebContainer();
+
+  // write uploaded files (files may be File[] from inputs or object {path,file} from drop)
   await writeFilesToContainer(files);
 
-  // If package.json present, read it
-  const pkgEntry = files.find(f => f.path.endsWith('/package.json') || f.path === '/package.json');
-  let entry = null;
-  if (pkgEntry) {
+  // detect package.json in provided files
+  const pkgFileEntry = files.find(f => {
+    const p = f.path ? f.path : ('/' + (f.webkitRelativePath || f.name));
+    return p.endsWith('/package.json') || p === '/package.json';
+  });
+
+  let pkg = null;
+  if (pkgFileEntry) {
     try {
-      const content = await container.fs.readFile(pkgEntry.path, 'utf-8');
-      const pkg = JSON.parse(content);
-      if (pkg.main) entry = pkg.main.startsWith('/') ? pkg.main : '/' + pkg.main;
-      // prefer "start" script if exists
-      if (pkg.scripts && pkg.scripts.start) {
-        // we'll run npm start later
-      }
+      // read from container FS to be safe
+      const pkgPath = pkgFileEntry.path ? pkgFileEntry.path : '/' + (pkgFileEntry.webkitRelativePath || pkgFileEntry.name);
+      const raw = await wc.fs.readFile(pkgPath, { encoding: 'utf-8' });
+      pkg = JSON.parse(raw);
     } catch (err) {
-      appendOutput('Failed to parse package.json, ignoring main.\n');
+      appendOutput('Failed to parse package.json from container: ' + (err?.message || err) + '\n');
     }
   }
 
-  // detect basic entry if no package.json main
-  if (!entry) {
-    const jsTs = files.map(f => f.path).filter(p => p.endsWith('.js') || p.endsWith('.ts')).sort();
-    if (jsTs.length) entry = jsTs[0];
-  }
-
-  appendOutput('Entry resolved: ' + (entry || 'none') + '\n');
-
-  // run npm install
-  appendOutput('Running npm install...\n');
-  const installProc = await container.spawn('npm', ['install'], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
-  if (installProc.stdin) currentStdinWriter = installProc.stdin.getWriter();
-  streamToOutput(installProc.output);
-  streamToOutput(installProc.stderr);
-  const installExit = await installProc.exit;
-  appendOutput('npm install exit code: ' + installExit + '\n');
-  currentStdinWriter = null;
-
+  // npm install
+  const installExit = await installDependencies(wc);
   if (installExit !== 0) {
-    appendOutput('npm install failed. Aborting run.\n');
+    appendOutput('npm install failed (exit ' + installExit + ')\n');
     return;
   }
 
-  // optional esbuild
-  if (useEsbuildCheckbox.checked) {
-    // determine entry path for esbuild (default to detected entry or index.js)
-    const esEntry = entry || '/index.js';
-    appendOutput('Bundling with esbuild: ' + esEntry + '\n');
-    const esProc = await container.spawn('npx', ['esbuild', esEntry, '--bundle', '--outfile=out.js', '--platform=node', '--format=cjs', '--sourcemap'], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
-    if (esProc.stdin) currentStdinWriter = esProc.stdin.getWriter();
-    streamToOutput(esProc.output);
-    streamToOutput(esProc.stderr);
-    const esExit = await esProc.exit;
-    appendOutput('esbuild exit code: ' + esExit + '\n');
-    currentStdinWriter = null;
-    if (esExit !== 0) {
-      appendOutput('esbuild failed. Aborting run.\n');
+  // optional bundling
+  if (useEsbuild.checked) {
+    // pick entry: pkg.main or first .js/.ts in uploaded files
+    let entry = pkg && pkg.main ? (pkg.main.startsWith('/') ? pkg.main : ('/' + pkg.main)) : null;
+    if (!entry) {
+      const jsTs = files.map(f => f.path ? f.path : ('/' + (f.webkitRelativePath || f.name))).filter(p => p.endsWith('.js') || p.endsWith('.ts'));
+      entry = jsTs.length ? jsTs[0] : '/index.js';
+    }
+    const bundleExit = await bundleProject(wc, entry);
+    if (bundleExit !== 0) {
+      appendOutput('esbuild failed (exit ' + bundleExit + ')\n');
       return;
     }
-    // after bundling, we will run npm start as requested (user likely expects start to run built file)
+    // after bundling, user likely expects npm start to run the bundle (depends on their package.json)
   }
 
-  // Finally npm start
-  appendOutput('Starting project: npm start\n');
-  const startProc = await container.spawn('npm', ['start'], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  // npm start
+  appendOutput('Starting project with `npm start`...\n');
+  const startProc = await safeSpawn(wc, 'npm', ['start']);
   currentProc = startProc;
   if (startProc.stdin) currentStdinWriter = startProc.stdin.getWriter();
   streamToOutput(startProc.output);
   streamToOutput(startProc.stderr);
-  // when process exits, clear writer and proc
   startProc.exit.then(code => {
     appendOutput(`npm start exited with code ${code}\n`);
     currentStdinWriter = null;
@@ -335,7 +235,33 @@ async function runProjectFlow() {
   });
 }
 
-/* --------- Drag & drop handling (Chrome-friendly recursive) --------- */
+/* --- helper: convert input FileList or drag-drop entries into consistent list --- */
+function filesFromInputs() {
+  const out = [];
+  for (const f of fileInputFiles.files) out.push({ path: '/' + (f.webkitRelativePath || f.name), file: f });
+  for (const f of fileInputDirs.files) out.push({ path: '/' + (f.webkitRelativePath || f.name), file: f });
+  return out;
+}
+
+/* --- run btn / clear btn handlers --- */
+runBtn.addEventListener('click', async () => {
+  const inputs = filesFromInputs();
+  if (!inputs.length) {
+    appendOutput('No files selected. Drag/drop or choose files/folders first.\n');
+    return;
+  }
+  try {
+    await runProject(inputs);
+  } catch (err) {
+    appendOutput('Run error: ' + (err?.message || err) + '\n');
+  }
+});
+
+clearBtn.addEventListener('click', () => {
+  outputEl.innerHTML = '';
+});
+
+/* --- drag/drop handling (Chrome-style using webkitGetAsEntry) --- */
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('highlight'); });
 dropZone.addEventListener('dragleave', e => { e.preventDefault(); dropZone.classList.remove('highlight'); });
 
@@ -343,63 +269,41 @@ dropZone.addEventListener('drop', async e => {
   e.preventDefault();
   dropZone.classList.remove('highlight');
 
+  // gather files recursively via DataTransferItem API so folders work
   const items = e.dataTransfer.items;
   if (!items) {
-    appendOutput('No items found in drop.\n');
+    appendOutput('Drop: no items.\n');
     return;
   }
-
-  lastDroppedFiles = [];
-  // traverse each item
-  for (const it of items) {
-    const entry = it.webkitGetAsEntry?.();
-    if (!entry) continue;
-    await traverseEntry(entry, '/', lastDroppedFiles);
-  }
-
-  appendOutput(`Dropped ${lastDroppedFiles.length} files/folders.\n`);
-});
-
-/* Recursively traverse FileSystemEntry (webkitGetAsEntry) */
-async function traverseEntry(entry, basePath, out) {
-  if (entry.isFile) {
-    await new Promise(resolve => entry.file(file => {
-      out.push({ path: basePath + file.name, file });
-      resolve();
-    }));
-  } else if (entry.isDirectory) {
-    const reader = entry.createReader();
-    const readAll = () => new Promise(resolve => reader.readEntries(resolve));
-    const entries = await readAll();
-    for (const e of entries) {
-      await traverseEntry(e, basePath + entry.name + '/', out);
+  const collected = [];
+  async function traverse(entry, base) {
+    if (entry.isFile) {
+      await new Promise(res => entry.file(f => { collected.push({ path: base + f.name, file: f }); res(); }));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise(res => reader.readEntries(res));
+      for (const en of entries) await traverse(en, base + entry.name + '/');
     }
   }
-}
-
-/* --------- File input change handlers to show feedback --------- */
-fileInputFiles.addEventListener('change', () => {
-  appendOutput(`${fileInputFiles.files.length} files selected.\n`);
-});
-fileInputDirs.addEventListener('change', () => {
-  appendOutput(`${fileInputDirs.files.length} folder-entries selected.\n`);
-});
-
-/* --------- Run button & clear button --------- */
-runBtn.addEventListener('click', async () => {
+  for (const it of items) {
+    const en = it.webkitGetAsEntry?.();
+    if (en) await traverse(en, '/');
+  }
+  if (!collected.length) {
+    appendOutput('No files found in drop.\n');
+    return;
+  }
+  // write and run immediately (user-friendly)
   try {
-    await runProjectFlow();
+    await runProject(collected);
   } catch (err) {
-    appendOutput('Run error: ' + err.message + '\n');
+    appendOutput('Drop-run error: ' + (err?.message || err) + '\n');
   }
 });
-clearBtn.addEventListener('click', () => {
-  outputEl.innerHTML = '';
-  progressBar.style.width = '0%';
-});
 
-/* --------- Terminal input / stdin wiring / command history --------- */
+/* --- interactive terminal input (stdin piping + history) --- */
 cmdInput.addEventListener('keydown', async (e) => {
+  // history navigation
   if (e.key === 'ArrowUp') {
     if (commandHistory.length === 0) return;
     historyIndex = Math.max(0, historyIndex - 1);
@@ -418,39 +322,34 @@ cmdInput.addEventListener('keydown', async (e) => {
   if (e.key !== 'Enter') return;
   const cmd = cmdInput.value;
   cmdInput.value = '';
-  if (!cmd) {
-    // send newline if interactive
-    if (currentStdinWriter) {
-      await currentStdinWriter.write(new TextEncoder().encode('\n'));
-    }
-    return;
+
+  // add to history
+  if (cmd.trim()) {
+    commandHistory.push(cmd);
+    historyIndex = commandHistory.length;
   }
 
-  // store history
-  commandHistory.push(cmd);
-  historyIndex = commandHistory.length;
+  // show command locally
+  appendOutput('$ ' + cmd + '\n');
 
-  appendOutput(`$ ${cmd}\n`);
-
-  // If there's a running process with stdin, send input there
+  // if a process is running and has stdin, send it there
   if (currentStdinWriter) {
     try {
       await currentStdinWriter.write(new TextEncoder().encode(cmd + '\n'));
     } catch (err) {
-      appendOutput(`Error writing to stdin: ${err.message}\n`);
+      appendOutput('Write to stdin failed: ' + (err?.message || err) + '\n');
     }
     return;
   }
 
-  // Otherwise, spawn a one-off command in bash (persistent shell behavior)
+  // otherwise spawn the command directly (one-off)
   try {
-    const container = await boot();
-    const parts = cmd.split(' ').filter(Boolean);
-    // spawn a shell to run the command so prompts and interactive tools behave
-    const proc = await container.spawn(parts[0], parts.slice(1), { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+    const wcInst = await bootWebContainer();
+    const parts = cmd.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return;
+    const proc = await safeSpawn(wcInst, parts[0], parts.slice(1));
     currentProc = proc;
     if (proc.stdin) currentStdinWriter = proc.stdin.getWriter();
-    // stream outputs
     streamToOutput(proc.output);
     streamToOutput(proc.stderr);
     proc.exit.then(code => {
@@ -459,12 +358,12 @@ cmdInput.addEventListener('keydown', async (e) => {
       currentProc = null;
     });
   } catch (err) {
-    appendOutput('Shell spawn error: ' + err.message + '\n');
+    appendOutput('Command spawn error: ' + (err?.message || err) + '\n');
   }
 });
 
-/* --------- Make sure boot happens early to reduce latency --------- */
-boot().catch(err => appendOutput('Boot failed: ' + err.message + '\n'));
+/* --- warm boot to reduce latency --- */
+bootWebContainer().catch(err => appendOutput('Boot failed: ' + (err?.message || err) + '\n'));
 
 </script>
 </body>
