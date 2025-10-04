@@ -1,220 +1,58 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WebContainer File Runner (Interactive)</title>
-<style>
-  body { font-family: monospace; background: #111; color: #eee; margin: 0; padding: 1rem; }
-  .container { max-width: 900px; margin: auto; background: #1e1e1e; padding: 1rem; border-radius: 0.5rem; }
-  h1 { font-size: 1.2rem; margin-bottom: 1rem; color: #90caf9; }
-  .controls { margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-  .btn { padding: 0.4rem 0.8rem; background: #333; border: 1px solid #555; border-radius: 0.3rem; cursor: pointer; color: #eee; }
-  .btn-primary { background: #1976d2; border-color: #1976d2; color: white; }
-  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  #dropZone { border: 2px dashed #444; border-radius: 0.5rem; padding: 1rem; text-align: center; margin-bottom: 1rem; color: #aaa; }
-  #dropZone.highlight { background: #222; border-color: #90caf9; color: #90caf9; }
-  .output { background: #000; color: #eee; font-family: monospace; padding: 1rem; border-radius: 0.3rem; height: 400px; overflow-y: auto; white-space: pre-wrap; }
-  .terminal { display: flex; margin-top: 0.5rem; }
-  #cmdInput { flex: 1; padding: 0.4rem; background: #111; color: #eee; border: 1px solid #444; border-radius: 0.3rem; font-family: monospace; }
-  label { display: flex; flex-direction: column; font-size: 0.85rem; color: #ccc; }
-</style>
-</head>
-<body>
+// --- persistent terminal process ---
+let terminalProc = null;
+let terminalStdin = null;
 
-<div class="container">
-  <h1>WebContainer File Runner (Interactive)</h1>
-  <div id="dropZone">Drag & drop files or folders here</div>
-
-  <div class="controls">
-    <label>Files:<input id="fileInputFiles" type="file" multiple></label>
-    <label>Folders:<input id="fileInputDirs" type="file" webkitdirectory directory multiple></label>
-    <button id="runBtn" class="btn btn-primary">Run project (npm start)</button>
-    <button id="clearBtn" class="btn">Clear output</button>
-    <label><input id="bundleCheckbox" type="checkbox"> Bundle with esbuild (optional)</label>
-  </div>
-
-  <div id="output" class="output">(terminal output will appear here)</div>
-  <div class="terminal">
-    <input id="cmdInput" type="text" placeholder="Type commands here (press Enter to send)">
-  </div>
-</div>
-
-<script type="module">
-import { WebContainer } from "https://unpkg.com/@webcontainer/api@1.1.0/dist/index.js";
-
-let webcontainer = null;
-let isBooted = false;
-let activeStdinWriter = null;
-
-const outputEl = document.getElementById("output");
-const cmdInput = document.getElementById("cmdInput");
-const dropZone = document.getElementById("dropZone");
-const fileInputFiles = document.getElementById("fileInputFiles");
-const fileInputDirs = document.getElementById("fileInputDirs");
-const bundleCheckbox = document.getElementById("bundleCheckbox");
-
-function appendOutput(text) {
-  outputEl.innerHTML += ansiToHtml(text);
-  outputEl.scrollTop = outputEl.scrollHeight;
-}
-
-// --- ANSI color parser ---
-function ansiToHtml(str) {
-  return str
-    .replace(/\u001b\[0m/g,"</span>")
-    .replace(/\u001b\[31m/g,'<span style="color:#f44336">')
-    .replace(/\u001b\[32m/g,'<span style="color:#4caf50">')
-    .replace(/\u001b\[33m/g,'<span style="color:#ffeb3b">')
-    .replace(/\u001b\[34m/g,'<span style="color:#2196f3">')
-    .replace(/\u001b\[35m/g,'<span style="color:#e91e63">')
-    .replace(/\u001b\[36m/g,'<span style="color:#00bcd4">');
-}
-
-async function bootWebContainer() {
-  if (isBooted) return webcontainer;
-  appendOutput("Booting WebContainer...\n");
-  webcontainer = await WebContainer.boot();
-  isBooted = true;
-  appendOutput("WebContainer booted.\n");
-  return webcontainer;
-}
-
-async function installDependencies(wc) {
-  appendOutput("Installing npm dependencies...\n");
-  const proc = await wc.spawn("npm", ["install"], { stdin: true });
-  if (proc.stdin) activeStdinWriter = proc.stdin.getWriter();
-  streamToOutput(proc.output);
-  streamToOutput(proc.stderr);
-  const exitCode = await proc.exit;
-  appendOutput("\nnpm install exited with code " + exitCode + "\n");
-  activeStdinWriter = null;
-  return exitCode;
-}
-
-async function bundleProject(wc, entry) {
-  appendOutput("Bundling with esbuild...\n");
-  const proc = await wc.spawn("npx", [
-    "esbuild", entry,
-    "--bundle", "--outfile=out.js",
-    "--platform=node", "--format=cjs", "--sourcemap"
-  ], { stdin: true });
-  if (proc.stdin) activeStdinWriter = proc.stdin.getWriter();
-  streamToOutput(proc.output);
-  streamToOutput(proc.stderr);
-  const exitCode = await proc.exit;
-  appendOutput("\nesbuild exited with code " + exitCode + "\n");
-  activeStdinWriter = null;
-  return exitCode;
-}
-
-async function runProject(files) {
-  const wc = await bootWebContainer();
-
-  // Write files
-  for (const f of files) {
-    const path = "/" + (f.webkitRelativePath || f.name);
-    const dir = path.substring(0, path.lastIndexOf("/"));
-    if (dir) await wc.fs.mkdir(dir, { recursive: true });
-    await wc.fs.writeFile(path, await f.text());
-    appendOutput("Wrote: " + path + "\n");
-  }
-
-  // Determine entry
-  let entry = null;
-  const pkgFile = files.find(f => f.name === "package.json");
-  if (pkgFile) {
-    const code = await installDependencies(wc);
-    if (code !== 0) return appendOutput("npm install failed.\n");
-    try {
-      const pkg = JSON.parse(await pkgFile.text());
-      if (pkg.main) entry = "/" + pkg.main;
-    } catch { appendOutput("Failed to parse package.json.\n"); }
-  }
-  if (!entry) {
-    const jsFiles = files.map(f => "/" + (f.webkitRelativePath || f.name))
-                         .filter(p => p.endsWith(".js") || p.endsWith(".ts"))
-                         .sort();
-    if (jsFiles.length) entry = jsFiles[0];
-  }
-  if (!entry) return appendOutput("No entry point found.\n");
-  appendOutput("Detected entry: " + entry + "\n");
-
-  // Optional bundle
-  if (bundleCheckbox.checked) {
-    const bundleCode = await bundleProject(wc, entry);
-    if (bundleCode !== 0) return appendOutput("Bundling failed.\n");
-  }
-
-  // Run npm start
-  appendOutput("Running npm start...\n");
-  const runProc = await wc.spawn("npm", ["start"], { stdin: true });
-  if (runProc.stdin) activeStdinWriter = runProc.stdin.getWriter();
-  streamToOutput(runProc.output);
-  streamToOutput(runProc.stderr);
-  runProc.exit.then(() => {
-    appendOutput("\n[process exited]\n");
-    activeStdinWriter = null;
+// helper to spawn a persistent terminal (bash) if none exists
+async function ensureTerminal() {
+  if (terminalProc) return terminalProc;
+  const wcInst = await bootWebContainer();
+  terminalProc = await safeSpawn('bash', [], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  if (terminalProc.stdin) terminalStdin = terminalProc.stdin.getWriter();
+  streamToOutput(terminalProc.output);
+  streamToOutput(terminalProc.stderr);
+  terminalProc.exit.then(code => {
+    appendOutput(`\n[terminal exited with ${code}]\n`);
+    terminalProc = null;
+    terminalStdin = null;
   });
+  return terminalProc;
 }
 
-// Stream helper
-async function streamToOutput(stream) {
-  if (!stream) return;
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (value) appendOutput(decoder.decode(value));
-  }
-}
+// intercept cmdInput
+cmdInput.addEventListener('keydown', async e => {
+  if (e.key === 'Enter') {
+    const cmd = cmdInput.value;
+    cmdInput.value = '';
+    if (!cmd.trim()) return;
+    appendOutput('$ ' + cmd + '\n');
 
-// Gather files
-async function gatherFiles() {
-  return [...Array.from(fileInputFiles.files), ...Array.from(fileInputDirs.files)];
-}
+    // add to history
+    if (cmd.trim()) {
+      cmdHistory.push(cmd);
+      histIndex = cmdHistory.length;
+    }
 
-// Event listeners
-document.getElementById("runBtn").onclick = async () => {
-  const files = await gatherFiles();
-  if (!files.length) return appendOutput("No files selected.\n");
-  try { await runProject(files); } catch(e) { appendOutput("Error: " + e.message + "\n"); }
-};
-document.getElementById("clearBtn").onclick = () => { outputEl.innerHTML = ""; };
-
-// Drag-and-drop
-dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("highlight"); });
-dropZone.addEventListener("dragleave", e => { e.preventDefault(); dropZone.classList.remove("highlight"); });
-dropZone.addEventListener("drop", async e => {
-  e.preventDefault(); dropZone.classList.remove("highlight");
-  const files = [...e.dataTransfer.files];
-  if (!files.length) return appendOutput("No files dropped.\n");
-  await runProject(files);
-});
-
-// Interactive stdin
-cmdInput.addEventListener("keydown", async e => {
-  if (e.key === "Enter") {
-    const cmd = cmdInput.value.trim();
-    cmdInput.value = "";
-    if (!cmd) return;
-    if (activeStdinWriter) {
-      await activeStdinWriter.write(new TextEncoder().encode(cmd + "\n"));
-    } else {
-      const wc = await bootWebContainer();
-      const proc = await wc.spawn("bash", { stdin: true });
-      if (proc.stdin) activeStdinWriter = proc.stdin.getWriter();
-      streamToOutput(proc.output);
-      streamToOutput(proc.stderr);
-      await activeStdinWriter.write(new TextEncoder().encode(cmd + "\n"));
-      proc.exit.then(() => {
-        appendOutput("\n[process exited]\n");
-        activeStdinWriter = null;
-      });
+    try {
+      await ensureTerminal();
+      if (terminalStdin) {
+        await terminalStdin.write(new TextEncoder().encode(cmd + '\n'));
+      }
+    } catch (err) {
+      appendOutput('Terminal input error: ' + (err?.message || err) + '\n');
     }
   }
+
+  // history navigation
+  if (e.key === 'ArrowUp') {
+    if (!cmdHistory.length) return;
+    histIndex = Math.max(0, histIndex - 1);
+    cmdInput.value = cmdHistory[histIndex] || '';
+    e.preventDefault();
+  }
+  if (e.key === 'ArrowDown') {
+    if (!cmdHistory.length) return;
+    histIndex = Math.min(cmdHistory.length, histIndex + 1);
+    cmdInput.value = cmdHistory[histIndex] || '';
+    e.preventDefault();
+  }
 });
-</script>
-</body>
-</html>
