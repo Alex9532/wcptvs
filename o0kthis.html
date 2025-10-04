@@ -1,58 +1,299 @@
-// --- persistent terminal process ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WebContainer File Runner (Interactive Persistent)</title>
+<style>
+  body { font-family: monospace; background: #111; color: #eee; margin: 0; padding: 1rem; }
+  .container { max-width: 900px; margin: auto; background: #1e1e1e; padding: 1rem; border-radius: 0.5rem; }
+  h1 { font-size: 1.2rem; margin-bottom: 1rem; color: #90caf9; }
+  .controls { margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .btn { padding: 0.4rem 0.8rem; background: #333; border: 1px solid #555; border-radius: 0.3rem; cursor: pointer; color: #eee; }
+  .btn-primary { background: #1976d2; border-color: #1976d2; color: white; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  #dropZone { border: 2px dashed #444; border-radius: 0.5rem; padding: 1rem; text-align: center; margin-bottom: 1rem; color: #aaa; }
+  #dropZone.highlight { background: #222; border-color: #90caf9; color: #90caf9; }
+  .output { background: #000; color: #eee; font-family: monospace; padding: 1rem; border-radius: 0.3rem; height: 400px; overflow-y: auto; white-space: pre-wrap; }
+  .terminal { display: flex; margin-top: 0.5rem; }
+  #cmdInput { flex: 1; padding: 0.4rem; background: #111; color: #eee; border: 1px solid #444; border-radius: 0.3rem; font-family: monospace; }
+  .muted { color: #9aa3ad; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>WebContainer File Runner (Interactive Persistent)</h1>
+
+  <div id="dropZone">Drag & drop files or folders here</div>
+
+  <div class="controls">
+    <label>Files: <input id="fileInputFiles" type="file" multiple></label>
+    <label>Folders: <input id="fileInputDirs" type="file" webkitdirectory directory multiple></label>
+    <button id="runBtn" class="btn btn-primary">Run project</button>
+    <button id="clearBtn" class="btn">Clear output</button>
+    <label class="muted" style="margin-left:8px;"><input id="useEsbuild" type="checkbox" checked> Use esbuild</label>
+  </div>
+
+  <div id="output" class="output">(terminal output will appear here)</div>
+
+  <div class="terminal">
+    <input id="cmdInput" type="text" placeholder="Type commands here (press Enter to send). Arrow ↑/↓ for history." autocomplete="off"/>
+  </div>
+</div>
+
+<script type="module">
+import { WebContainer } from "https://unpkg.com/@webcontainer/api@1.1.7/dist/index.js";
+
+let webcontainer = null;
+let isBooted = false;
 let terminalProc = null;
 let terminalStdin = null;
+let commandHistory = [];
+let historyIndex = 0;
 
-// helper to spawn a persistent terminal (bash) if none exists
-async function ensureTerminal() {
-  if (terminalProc) return terminalProc;
-  const wcInst = await bootWebContainer();
-  terminalProc = await safeSpawn('bash', [], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
-  if (terminalProc.stdin) terminalStdin = terminalProc.stdin.getWriter();
+const outputEl = document.getElementById("output");
+const cmdInput = document.getElementById("cmdInput");
+const dropZone = document.getElementById("dropZone");
+const fileInputFiles = document.getElementById("fileInputFiles");
+const fileInputDirs = document.getElementById("fileInputDirs");
+const runBtn = document.getElementById("runBtn");
+const clearBtn = document.getElementById("clearBtn");
+const useEsbuild = document.getElementById("useEsbuild");
+
+// --- ANSI escape to HTML ---
+function escapeHtml(s){ return s.replace(/[&<>]/g, ch => ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;'); }
+function ansiToHtml(s){
+  if(!s) return '';
+  s = escapeHtml(s);
+  s = s.replace(/\u001b\[0m/g,'</span>');
+  s = s.replace(/\u001b\[1m/g,'<span style="font-weight:bold">');
+  s = s.replace(/\u001b\[31m/g,'<span style="color:#f44336">');
+  s = s.replace(/\u001b\[32m/g,'<span style="color:#4caf50">');
+  s = s.replace(/\u001b\[33m/g,'<span style="color:#ffeb3b">');
+  s = s.replace(/\u001b\[34m/g,'<span style="color:#2196f3">');
+  s = s.replace(/\u001b\[35m/g,'<span style="color:#e91e63">');
+  s = s.replace(/\u001b\[36m/g,'<span style="color:#00bcd4">');
+  s = s.replace(/\u001b\[[\d;]*[A-Za-z]/g,'');
+  return s;
+}
+
+function appendOutput(text){
+  const html = ansiToHtml(text);
+  const node = document.createElement('div');
+  node.innerHTML = html;
+  outputEl.appendChild(node);
+  node.scrollIntoView({ block:"end" });
+}
+
+// --- safe streaming ---
+async function streamToOutput(stream){
+  if (!stream || typeof stream.getReader !== 'function') return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  while(true){
+    let res;
+    try { res = await reader.read(); } catch(e){ appendOutput('[stream error] '+(e?.message||e)+'\n'); break; }
+    const { value, done } = res;
+    if(done) break;
+    if(!value) continue;
+    let chunk;
+    if(value instanceof Uint8Array) chunk = decoder.decode(value);
+    else if(value?.buffer instanceof ArrayBuffer) chunk = decoder.decode(new Uint8Array(value.buffer));
+    else chunk = String(value);
+    appendOutput(chunk);
+  }
+}
+
+// --- boot container ---
+async function bootWebContainer(){
+  if(isBooted && webcontainer) return webcontainer;
+  appendOutput('Booting WebContainer...\n');
+  webcontainer = await WebContainer.boot();
+  isBooted = true;
+  appendOutput('WebContainer ready.\n');
+  return webcontainer;
+}
+
+// --- spawn helper ---
+function safeSpawn(cmd, args=[]){
+  return webcontainer.spawn(cmd, args, { stdin:'pipe', stdout:'pipe', stderr:'pipe' });
+}
+
+// --- write files ---
+async function writeFilesToContainer(files){
+  const wc = await bootWebContainer();
+  for(const f of files){
+    const path = f.path || ('/' + (f.webkitRelativePath || f.name));
+    const dir = path.substring(0, path.lastIndexOf('/')) || '/';
+    try{
+      if(dir) await wc.fs.mkdir(dir,{recursive:true});
+      const ab = await (f.file ? f.file.arrayBuffer() : f.arrayBuffer());
+      await wc.fs.writeFile(path, new Uint8Array(ab));
+      appendOutput(`Wrote: ${path}\n`);
+    } catch(err){ appendOutput(`Write error (${path}): ${err?.message||err}\n`); }
+  }
+}
+
+// --- install dependencies ---
+async function installDependencies(){
+  appendOutput('Installing npm dependencies...\n');
+  const proc = await safeSpawn('npm',['install']);
+  if(proc.stdin) terminalStdin = proc.stdin.getWriter();
+  streamToOutput(proc.output);
+  streamToOutput(proc.stderr);
+  const exit = await proc.exit;
+  appendOutput(`npm install exited with code ${exit}\n`);
+  terminalStdin = null;
+  return exit;
+}
+
+// --- optional esbuild ---
+async function bundleProject(entry){
+  appendOutput(`Bundling with esbuild: ${entry}\n`);
+  const proc = await safeSpawn('npx',['esbuild',entry,'--bundle','--outfile=out.js','--platform=node','--format=cjs','--sourcemap']);
+  if(proc.stdin) terminalStdin = proc.stdin.getWriter();
+  streamToOutput(proc.output);
+  streamToOutput(proc.stderr);
+  const exit = await proc.exit;
+  appendOutput(`esbuild exited with code ${exit}\n`);
+  terminalStdin = null;
+  return exit;
+}
+
+// --- persistent terminal ---
+async function ensureTerminal(){
+  if(terminalProc) return terminalProc;
+  const wc = await bootWebContainer();
+  terminalProc = await wc.spawn('bash',[],{stdin:'pipe', stdout:'pipe', stderr:'pipe'});
+  if(terminalProc.stdin) terminalStdin = terminalProc.stdin.getWriter();
   streamToOutput(terminalProc.output);
   streamToOutput(terminalProc.stderr);
-  terminalProc.exit.then(code => {
+  terminalProc.exit.then(code=>{
     appendOutput(`\n[terminal exited with ${code}]\n`);
-    terminalProc = null;
-    terminalStdin = null;
+    terminalProc=null;
+    terminalStdin=null;
   });
   return terminalProc;
 }
 
-// intercept cmdInput
-cmdInput.addEventListener('keydown', async e => {
-  if (e.key === 'Enter') {
-    const cmd = cmdInput.value;
-    cmdInput.value = '';
-    if (!cmd.trim()) return;
-    appendOutput('$ ' + cmd + '\n');
+// --- run project ---
+async function runProject(files){
+  const wc = await bootWebContainer();
+  await writeFilesToContainer(files);
 
-    // add to history
-    if (cmd.trim()) {
-      cmdHistory.push(cmd);
-      histIndex = cmdHistory.length;
-    }
-
-    try {
-      await ensureTerminal();
-      if (terminalStdin) {
-        await terminalStdin.write(new TextEncoder().encode(cmd + '\n'));
-      }
-    } catch (err) {
-      appendOutput('Terminal input error: ' + (err?.message || err) + '\n');
-    }
+  // detect package.json
+  const pkgFile = files.find(f => f.path?.endsWith('/package.json') || f.name==='package.json');
+  let pkg = null;
+  if(pkgFile){
+    try{
+      const pkgPath = pkgFile.path || ('/' + (pkgFile.webkitRelativePath || pkgFile.name));
+      const raw = await wc.fs.readFile(pkgPath,{encoding:'utf-8'});
+      pkg = JSON.parse(raw);
+    } catch(e){ appendOutput('Failed to parse package.json: '+(e?.message||e)+'\n'); }
   }
 
-  // history navigation
-  if (e.key === 'ArrowUp') {
-    if (!cmdHistory.length) return;
-    histIndex = Math.max(0, histIndex - 1);
-    cmdInput.value = cmdHistory[histIndex] || '';
+  const installExit = await installDependencies();
+  if(installExit!==0){ appendOutput('npm install failed.\n'); return; }
+
+  // optional esbuild
+  if(useEsbuild.checked){
+    let entry = pkg?.main ? (pkg.main.startsWith('/')? pkg.main: '/'+pkg.main) : null;
+    if(!entry){
+      const jsFiles = files.map(f=>f.path||('/'+(f.webkitRelativePath||f.name))).filter(p=>p.endsWith('.js')||p.endsWith('.ts'));
+      entry = jsFiles[0]||'/index.js';
+    }
+    const bundleExit = await bundleProject(entry);
+    if(bundleExit!==0){ appendOutput('esbuild failed.\n'); return; }
+  }
+
+  appendOutput('Starting project via npm start...\n');
+  await ensureTerminal();
+  const startProc = await safeSpawn('npm',['start']);
+  terminalProc = startProc;
+  if(startProc.stdin) terminalStdin = startProc.stdin.getWriter();
+  streamToOutput(startProc.output);
+  streamToOutput(startProc.stderr);
+  startProc.exit.then(code=>{
+    appendOutput(`npm start exited with code ${code}\n`);
+    terminalProc=null;
+    terminalStdin=null;
+  });
+}
+
+// --- file input helper ---
+function filesFromInputs(){
+  const arr=[];
+  for(const f of fileInputFiles.files) arr.push({path:'/‘+(f.webkitRelativePath||f.name), file:f});
+  for(const f of fileInputDirs.files) arr.push({path:'/‘+(f.webkitRelativePath||f.name), file:f});
+  return arr;
+}
+
+// --- run/clear buttons ---
+runBtn.addEventListener('click', async ()=>{
+  const inputs=filesFromInputs();
+  if(!inputs.length){ appendOutput('No files selected.\n'); return; }
+  try{ await runProject(inputs); } catch(e){ appendOutput('Run error: '+(e?.message||e)+'\n'); }
+});
+
+clearBtn.addEventListener('click', ()=>{ outputEl.innerHTML=''; });
+
+// --- drag/drop ---
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('highlight');});
+dropZone.addEventListener('dragleave',e=>{e.preventDefault();dropZone.classList.remove('highlight');});
+dropZone.addEventListener('drop',async e=>{
+  e.preventDefault();
+  dropZone.classList.remove('highlight');
+  const items = e.dataTransfer.items;
+  if(!items){ appendOutput('No items.\n'); return; }
+  const collected=[];
+  async function traverse(entry,base){
+    if(entry.isFile){
+      await new Promise(res=>entry.file(f=>{collected.push({path:base+f.name,file:f}); res();}));
+    } else if(entry.isDirectory){
+      const reader=entry.createReader();
+      const entries=await new Promise(res=>reader.readEntries(res));
+      for(const en of entries) await traverse(en,base+entry.name+'/');
+    }
+  }
+  for(const it of items){
+    const en=it.webkitGetAsEntry?.();
+    if(en) await traverse(en,'/');
+  }
+  if(!collected.length){ appendOutput('No files found.\n'); return; }
+  try{ await runProject(collected); } catch(e){ appendOutput('Drop-run error: '+(e?.message||e)+'\n'); }
+});
+
+// --- interactive terminal input ---
+cmdInput.addEventListener('keydown', async e=>{
+  if(e.key==='Enter'){
+    const cmd=cmdInput.value;
+    cmdInput.value='';
+    if(!cmd.trim()) return;
+    appendOutput('$ '+cmd+'\n');
+    if(cmd.trim()){ commandHistory.push(cmd); historyIndex=commandHistory.length; }
+    try{
+      await ensureTerminal();
+      if(terminalStdin) await terminalStdin.write(new TextEncoder().encode(cmd+'\n'));
+    } catch(err){ appendOutput('Terminal input error: '+(err?.message||err)+'\n'); }
+  }
+
+  if(e.key==='ArrowUp'){
+    if(!commandHistory.length) return;
+    historyIndex=Math.max(0,historyIndex-1);
+    cmdInput.value=commandHistory[historyIndex]||'';
     e.preventDefault();
   }
-  if (e.key === 'ArrowDown') {
-    if (!cmdHistory.length) return;
-    histIndex = Math.min(cmdHistory.length, histIndex + 1);
-    cmdInput.value = cmdHistory[histIndex] || '';
+  if(e.key==='ArrowDown'){
+    if(!commandHistory.length) return;
+    historyIndex=Math.min(commandHistory.length,historyIndex+1);
+    cmdInput.value=commandHistory[historyIndex]||'';
     e.preventDefault();
   }
 });
+
+// --- warm boot ---
+bootWebContainer().catch(err=>appendOutput('Boot failed: '+(err?.message||err)+'\n'));
+
+</script>
+</body>
+</html>
