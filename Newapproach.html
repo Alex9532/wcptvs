@@ -58,10 +58,11 @@
         import { WebContainer } from "@webcontainer/api";
 
         // Check if WebContainer API is available
-        if (!WebContainer) {
-            alert("WebContainer is not supported in your environment.");
-            return;
-        }
+        (async () => {
+            if (!WebContainer) {
+                alert("WebContainer is not supported in your environment.");
+                return;
+            }
 
         document.getElementById('start-server-btn').addEventListener('click', async function () {
             const iframe = document.getElementById('web-container');
