@@ -1,0 +1,46 @@
+<!--?xml version="1.0" encoding="UTF-8" ?-->
+<html lang="en-us">
+  <head>
+  </head>
+  <body class="template">
+    <module>
+      <moduleprefs title="Google.com">
+        <content type="html">
+          <!--[CDATA[
+
+
+<!DOCTYPE html-->
+          <meta charset="utf-8" />
+          <meta name="robots" content="noindex, nofollow" />
+          <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+          <title>
+            google.com
+          </title>
+          <link href="https://clusterrush.io/game/TemplateData/style.css" rel="stylesheet" />
+          <script src="https://freegamesonlinee.github.io/game/cluster-rush/TemplateData/UnityProgress.js" type="text/javascript">
+          </script>
+          <div class="template-wrap clear">
+            <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" height="600" width="900">
+            </canvas>
+          </div>
+          <script type="text/javascript">
+            var Module = {
+    TOTAL_MEMORY: 268435456,
+    errorhandler: null,
+    compatibilitycheck: null,
+    backgroundColor: &#34;#222C36&#34;,
+    splashStyle: &#34;Dark&#34;,
+    dataUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.data&#34;,
+    codeUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.js&#34;,
+    asmUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.asm.js&#34;,
+    memUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.mem&#34;,
+  };
+          </script>
+          <script src="https://freegamesonlinee.github.io/game/cluster-rush/Release/UnityLoader.js">
+          </script>
+          ]]&gt;
+        </content>
+      </moduleprefs>
+    </module>
+  </body>
+</html>
