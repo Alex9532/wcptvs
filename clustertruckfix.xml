@@ -24,7 +24,7 @@
             </canvas>
           </div>
           <script type="text/javascript">
-            var Module = {
+      var Module = {
     TOTAL_MEMORY: 268435456,
     errorhandler: null,
     compatibilitycheck: null,
@@ -35,7 +35,7 @@
     asmUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.asm.js&#34;,
     memUrl: &#34;https://freegamesonlinee.github.io/game/cluster-rush/Release/NG.mem&#34;,
   };
-          </script>
+    </script>
           <script src="https://freegamesonlinee.github.io/game/cluster-rush/Release/UnityLoader.js">
           </script>
           ]]&gt;
