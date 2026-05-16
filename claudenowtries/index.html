@@ -1,0 +1,28 @@
+<script>
+  async function init() {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.register('/claudenowtries/sw.js');
+
+      // If the SW just became active for the first time, reload so it
+      // controls this page (the registration load wasn't intercepted)
+      if (!navigator.serviceWorker.controller) {
+        await new Promise((resolve) => {
+          reg.addEventListener('updatefound', () => {
+            reg.installing.addEventListener('statechange', (e) => {
+              if (e.target.state === 'activated') resolve();
+            });
+          });
+        });
+        location.reload();
+        return;
+      }
+    }
+
+    // SW is active and controlling — safe to boot WebContainer
+    const { WebContainer } = await import('@webcontainer/api');
+    const wc = await WebContainer.boot();
+    // ... rest of your setup
+  }
+
+  init();
+</script>
