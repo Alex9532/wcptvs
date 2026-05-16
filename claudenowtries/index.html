@@ -304,7 +304,7 @@
     <div class="chips" id="chips">
       <button class="chip" disabled data-cmd="node --version">node --version</button>
       <button class="chip" disabled data-cmd="npm --version">npm --version</button>
-      <button class="chip" disabled data-cmd="npm install -g pnpm">install pnpm</button>
+      <button class="chip" disabled data-cmd="npm install -g pnpm --prefix /home/.npm-global">install pnpm</button>
       <button class="chip" disabled data-cmd="ls -la">ls -la</button>
       <button class="chip" disabled data-cmd="cat package.json">cat package.json</button>
       <button class="chip" disabled data-cmd="node -e &quot;console.log('hello from node!')&quot;">run node snippet</button>
@@ -454,7 +454,7 @@
       const target = cmd.slice(2).trim() || '/';
       try {
         const shellCmd = `cd ${escapeSh(cwd)} && cd ${escapeSh(target)} && pwd`;
-        const proc = await wc.spawn('/bin/sh', ['-c', shellCmd]);
+        const proc = await wc.spawn('/bin/sh', ['-c', shellCmd], { env: spawnEnv });
         let resolved = '';
         let errOut = '';
         proc.output.pipeTo(new WritableStream({
@@ -489,9 +489,7 @@
     let outputBuf = '';
 
     try {
-      const proc = await wc.spawn('/bin/sh', ['-c', `cd ${escapeSh(cwd)} && ${cmd}`], {
-        env: { npm_config_progress: 'false', TERM: 'dumb' },
-      });
+      const proc = await wc.spawn('/bin/sh', ['-c', `cd ${escapeSh(cwd)} && ${cmd}`], { env: spawnEnv });
 
       proc.output.pipeTo(new WritableStream({
         write(chunk) {
@@ -577,6 +575,13 @@
   chipBtns.forEach(btn => {
     btn.addEventListener('click', () => runCommand(btn.dataset.cmd));
   });
+
+  const spawnEnv = {
+    npm_config_progress: 'false',
+    npm_config_prefix: '/home/.npm-global',
+    TERM: 'dumb',
+    PATH: '/home/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
+  };
 
   // ── ANSI escape code stripper ────────────────────────────────────
   const ansiRe = /[\x1b\x9b](?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
