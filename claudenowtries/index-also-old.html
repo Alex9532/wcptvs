@@ -310,7 +310,7 @@
     </div>
 
     <div class="input-bar">
-      <span class="input-prompt">$</span>
+      <span class="input-prompt" id="input-prompt">~&nbsp;$</span>
       <input id="cmd-input" type="text" placeholder="enter a command…" disabled autocomplete="off" spellcheck="false" />
       <button class="run-btn" id="run-btn" disabled>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -338,6 +338,12 @@
   const uploadHint = document.getElementById('upload-hint');
 
   let wc = null;
+  let cwd = '/';
+
+  function updatePrompt() {
+    const display = cwd === '/' ? '~' : cwd.replace(/^\//, '');
+    document.getElementById('input-prompt').textContent = display + ' $\u00a0';
+  }
 
   // ── Logging helpers ──────────────────────────────────────────────
   function log(text, type = '') {
@@ -437,24 +443,47 @@
     runBtn.disabled = true;
     chipBtns.forEach(b => b.disabled = true);
 
-    // Parse: split on spaces, respecting simple quoted strings
-    const parts = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-    const parsed = parts.map(p => p.replace(/^['"]|['"]$/g, ''));
-    const [bin, ...args] = parsed;
+    // Intercept cd — it's a shell built-in and can't be spawned directly.
+    // We resolve the new path ourselves and verify it exists via pwd.
+    if (/^cd(\s|$)/.test(cmd)) {
+      const target = cmd.slice(2).trim() || '/';
+      try {
+        // Use sh to resolve the path (handles .., ~, relative paths) and print it
+        const proc = await wc.spawn('/bin/sh', ['-c', `cd ${JSON.stringify(target)} && pwd`], { cwd });
+        let resolved = '';
+        proc.output.pipeTo(new WritableStream({
+          write(chunk) { resolved += chunk; }
+        }));
+        const code = await proc.exit;
+        if (code === 0) {
+          cwd = resolved.trim();
+          updatePrompt();
+        } else {
+          log(`cd: ${target}: No such file or directory`, 'err');
+        }
+      } catch (e) {
+        log(e.message, 'err');
+      }
+      logSep();
+      input.disabled = false;
+      runBtn.disabled = false;
+      chipBtns.forEach(b => b.disabled = false);
+      input.focus();
+      return;
+    }
 
-    // Streaming output line
+    // All other commands: run via /bin/sh -c so pipes, &&, etc. work too
     const outLine = log('', '');
     let outputBuf = '';
 
     try {
-      const proc = await wc.spawn(bin, args);
+      const proc = await wc.spawn('/bin/sh', ['-c', cmd], { cwd });
 
       proc.output.pipeTo(new WritableStream({
         write(chunk) {
           outputBuf += chunk;
-          // Render each line separately for nicer display
           const lines = outputBuf.split('\n');
-          outputBuf = lines.pop(); // keep incomplete last line
+          outputBuf = lines.pop();
           for (const l of lines) {
             if (outLine.textContent === '') {
               outLine.textContent = l;
@@ -468,7 +497,6 @@
 
       const code = await proc.exit;
 
-      // Flush remaining buffer
       if (outputBuf) {
         if (outLine.textContent === '') {
           outLine.textContent = outputBuf;
