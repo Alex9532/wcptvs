@@ -3,9 +3,9 @@ self.addEventListener('fetch', (event) => {
 
   // Serve connect.html for any /connect/* path so WebContainer's
   // browser-connect flow works on GitHub Pages (no server-side redirects).
-  if (url.pathname.startsWith('/connect/') || url.pathname.includes('/connect/')) {
+  if (url.pathname.startsWith('/webcontainer/connect/') || url.pathname.includes('/webcontainer/connect/')) {
     event.respondWith(
-      fetch('/connect.html').then((response) => {
+      fetch('/wcptvs/claudenowtries/connect.html').then((response) => {
         const headers = new Headers(response.headers);
         headers.set('Cross-Origin-Opener-Policy', 'same-origin');
         headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
