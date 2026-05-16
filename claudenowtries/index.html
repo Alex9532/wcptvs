@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebContainer Terminal v1.4.0</title>
+  <title>WebContainer Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono:ital,wght@0,100..700;1,100..700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
 
@@ -105,6 +105,35 @@
     .status-badge.ready  { color: var(--green); border-color: var(--green-dim); background: #052e16; }
     .status-badge.error  { color: var(--red);   border-color: #7f1d1d; background: #1c0a0a; }
     .status-badge.booting { color: var(--amber); border-color: #78350f; background: #1c0e00; }
+
+    .server-btn {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 12px 3px 8px;
+      border-radius: 20px;
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      background: #041e24;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .15s, color .15s;
+      white-space: nowrap;
+      animation: fadeIn .3s ease;
+    }
+    .server-btn:hover { background: #072c38; color: #fff; border-color: #fff; }
+    .server-btn.visible { display: flex; }
+    .server-btn-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan);
+      animation: pulse 1.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
 
     /* ── Terminal ── */
     .terminal-wrap {
@@ -313,9 +342,15 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.4.1
+      webcontainer / terminal v1.5.0
     </div>
-    <div class="status-badge booting" id="status-badge">booting…</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
+        <span class="server-btn-dot"></span>
+        open server
+      </a>
+      <div class="status-badge booting" id="status-badge">booting…</div>
+    </div>
   </header>
 
   <div class="terminal-wrap">
@@ -378,6 +413,7 @@
   const zipInput      = document.getElementById('zip-input');
   const uploadHint    = document.getElementById('upload-hint');
   const extractToggle = document.getElementById('extract-toggle');
+  const serverBtn     = document.getElementById('server-btn');
 
   let wc = null;
   let cwd = '/';
@@ -449,6 +485,21 @@
     try {
       wc = await WebContainer.boot();
       log('WebContainer booted ✓', 'ok');
+
+      // Listen for any server the user starts — show an open button when ready
+      wc.on('server-ready', (port, url) => {
+        log(`Server detected on port ${port} → ${url}`, 'sys');
+        serverBtn.href = url;
+        serverBtn.title = `Open server on port ${port}`;
+        serverBtn.querySelector('.server-btn-dot').style.display = '';
+        serverBtn.classList.add('visible');
+        // Update URL if a new server starts on a different port
+        serverBtn.textContent = '';
+        const dot2 = document.createElement('span');
+        dot2.className = 'server-btn-dot';
+        serverBtn.appendChild(dot2);
+        serverBtn.appendChild(document.createTextNode(` :${port}`));
+      });
     } catch (e) {
       setError('WebContainer.boot() failed: ' + e.message);
       return;
