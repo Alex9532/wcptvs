@@ -434,16 +434,20 @@
     log('Preparing environment…', 'sys');
     try {
       await wc.fs.mkdir('/home/.config/pnpm', { recursive: true });
+      log('mkdir .config/pnpm ✓', 'dim');
       await wc.fs.mkdir('/home/.local/share/pnpm', { recursive: true });
+      log('mkdir .local/share/pnpm ✓', 'dim');
       await wc.fs.mkdir('/home/.npm-global/bin', { recursive: true });
+      log('mkdir .npm-global/bin ✓', 'dim');
       await wc.fs.mkdir('/home/.cache', { recursive: true });
-      // Write the config file with explicit utf-8 encoding
+      log('mkdir .cache ✓', 'dim');
       await wc.fs.writeFile('/home/.config/pnpm/config.yaml', '', 'utf-8');
-      // Verify it actually landed
-      await wc.fs.readFile('/home/.config/pnpm/config.yaml', 'utf-8');
+      log('writeFile config.yaml ✓', 'dim');
+      const check = await wc.fs.readFile('/home/.config/pnpm/config.yaml', 'utf-8');
+      log('readFile config.yaml ✓ contents: "' + check + '"', 'dim');
       log('Environment ready ✓', 'ok');
     } catch (e) {
-      log('Environment setup failed: ' + e.message, 'err');
+      log('Environment setup failed at: ' + e.message, 'err');
     }
 
     logSep();
