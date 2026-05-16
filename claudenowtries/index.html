@@ -441,6 +441,8 @@
     for (const dir of dirs) {
       await wc.fs.mkdir(dir, { recursive: true });
     }
+    // pnpm tries to open config.yaml before writing it — create it if absent
+    await wc.fs.writeFile('/home/.config/pnpm/config.yaml', '');
     log('Environment ready ✓', 'ok');
 
     logSep();
@@ -556,7 +558,7 @@
       return false;
     }
 
-    const reg = await navigator.serviceWorker.register('/wcptvs/claudenowtries/sw.js');
+    const reg = await navigator.serviceWorker.register('sw.js');
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
