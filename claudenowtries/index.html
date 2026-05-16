@@ -434,6 +434,10 @@
   }
 
   // ── Run a command ───────────────────────────────────────────────
+  function escapeSh(p) {
+    return "'" + p.replace(/'/g, "'\\''") + "'";
+  }
+
   async function runCommand(raw) {
     const cmd = raw.trim();
     if (!cmd) return;
@@ -443,17 +447,23 @@
     runBtn.disabled = true;
     chipBtns.forEach(b => b.disabled = true);
 
-    // Intercept cd — it's a shell built-in and can't be spawned directly.
-    // We resolve the new path ourselves and verify it exists via pwd.
+    // Intercept cd — shell built-in, can't be spawned directly.
+    // cd to current cwd first (absolute), then to the target, then pwd.
     if (/^cd(\s|$)/.test(cmd)) {
       const target = cmd.slice(2).trim() || '/';
       try {
-        // Use sh to resolve the path (handles .., ~, relative paths) and print it
-        const proc = await wc.spawn('/bin/sh', ['-c', `cd '${target.replace(/'/g, "'\\''")}' && pwd`], { cwd });
+        const shellCmd = `cd ${escapeSh(cwd)} && cd ${escapeSh(target)} && pwd`;
+        const proc = await wc.spawn('/bin/sh', ['-c', shellCmd]);
         let resolved = '';
+        let errOut = '';
         proc.output.pipeTo(new WritableStream({
           write(chunk) { resolved += chunk; }
         }));
+        if (proc.stderr) {
+          proc.stderr.pipeTo(new WritableStream({
+            write(chunk) { errOut += chunk; }
+          }));
+        }
         const code = await proc.exit;
         if (code === 0) {
           cwd = resolved.trim();
@@ -472,12 +482,13 @@
       return;
     }
 
-    // All other commands: run via /bin/sh -c so pipes, &&, etc. work too
+    // All other commands: cd to absolute cwd first, then run the command.
+    // This avoids relying on the { cwd } spawn option which is not supported.
     const outLine = log('', '');
     let outputBuf = '';
 
     try {
-      const proc = await wc.spawn('/bin/sh', ['-c', cmd], { cwd });
+      const proc = await wc.spawn('/bin/sh', ['-c', `cd ${escapeSh(cwd)} && ${cmd}`]);
 
       proc.output.pipeTo(new WritableStream({
         write(chunk) {
@@ -528,7 +539,7 @@
       return false;
     }
 
-    const reg = await navigator.serviceWorker.register('/wcptvs/claudenowtries/sw.js');
+    const reg = await navigator.serviceWorker.register('/sw.js');
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
