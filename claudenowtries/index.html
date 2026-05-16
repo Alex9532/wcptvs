@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.5.0
+      webcontainer / terminal v1.6.3
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -679,6 +679,12 @@
     runBtn.disabled = false;
     chipBtns.forEach(b => b.disabled = false);
     input.focus();
+  }
+
+  // Handle GitHub Pages 404 bounce-back for /connect/* routes
+  const redirectPath = new URLSearchParams(window.location.search).get('redirect');
+  if (redirectPath && redirectPath.includes('/connect/')) {
+    history.replaceState(null, '', redirectPath);
   }
 
   // ── Service Worker registration + reload guard ──────────────────
