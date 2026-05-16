@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- Created by Claude, I adapted some of the code -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -494,6 +493,9 @@
     return "'" + p.replace(/'/g, "'\\''") + "'";
   }
 
+  // Commands that launch an interactive REPL when called with no args
+  const INTERACTIVE_REPLS = new Set(['node', 'python', 'python3', 'bash', 'sh']);
+
   async function runCommand(raw) {
     const cmd = raw.trim();
     if (!cmd) return;
@@ -504,7 +506,6 @@
     chipBtns.forEach(b => b.disabled = true);
 
     // Intercept cd — shell built-in, can't be spawned directly.
-    // cd to current cwd first (absolute), then to the target, then pwd.
     if (/^cd(\s|$)/.test(cmd)) {
       const target = cmd.slice(2).trim() || '/';
       try {
@@ -538,13 +539,51 @@
       return;
     }
 
-    // All other commands: cd to absolute cwd first, then run the command.
-    // This avoids relying on the { cwd } spawn option which is not supported.
+    // Detect bare interactive REPLs (e.g. "node" with no args)
+    const argv = cmd.trim().split(/\s+/);
+    const isInteractive = INTERACTIVE_REPLS.has(argv[0]) && argv.length === 1;
+
     const outLine = log('', '');
     let outputBuf = '';
+    let inputWriter = null;
 
     try {
       const proc = await wc.spawn('/bin/sh', ['-c', `cd ${escapeSh(cwd)} && ${cmd}`], { env: spawnEnv });
+
+      // Wire up stdin so interactive REPLs can receive input
+      if (isInteractive && proc.input) {
+        inputWriter = proc.input.getWriter();
+        // Switch prompt to show we're in an interactive session
+        document.getElementById('input-prompt').textContent = '… \u00a0';
+        input.placeholder = 'send input… (Ctrl+D to exit)';
+        input.disabled = false;
+        runBtn.textContent = '';
+        runBtn.disabled = false;
+
+        // Ctrl+D sends EOF to the process
+        input.addEventListener('keydown', function ctrlDHandler(e) {
+          if (e.key === 'd' && e.ctrlKey) {
+            e.preventDefault();
+            inputWriter.close().catch(() => {});
+            input.removeEventListener('keydown', ctrlDHandler);
+          }
+        });
+
+        // Enter sends the line to the process stdin
+        const sendLine = async () => {
+          const line = input.value;
+          input.value = '';
+          log(line, 'cmd');
+          try {
+            await inputWriter.write(line + '\n');
+          } catch {}
+        };
+
+        input.onkeydown = async (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); await sendLine(); }
+        };
+        runBtn.onclick = sendLine;
+      }
 
       proc.output.pipeTo(new WritableStream({
         write(chunk) {
@@ -565,18 +604,22 @@
       const code = await proc.exit;
 
       if (outputBuf) {
-        if (outLine.textContent === '') {
-          outLine.textContent = outputBuf;
-        } else {
-          log(outputBuf);
-        }
+        if (outLine.textContent === '') outLine.textContent = outputBuf;
+        else log(outputBuf);
       }
+      if (code !== 0) log(`exited with code ${code}`, 'err');
 
-      if (code !== 0) {
-        log(`exited with code ${code}`, 'err');
-      }
     } catch (e) {
       log(e.message, 'err');
+    }
+
+    // Restore normal terminal state after process exits
+    if (isInteractive) {
+      input.onkeydown = null;
+      runBtn.onclick = null;
+      runBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="4,2 14,8 4,14" fill="currentColor" stroke="none"/></svg> run`;
+      input.placeholder = 'enter a command…';
+      updatePrompt();
     }
 
     logSep();
@@ -625,6 +668,9 @@
   let historySaved = ''; // preserves draft while browsing history
 
   input.addEventListener('keydown', e => {
+    // Skip if runCommand has installed its own interactive handler
+    if (input.onkeydown) return;
+
     if (e.key === 'Enter') {
       const v = input.value;
       input.value = '';
@@ -638,6 +684,7 @@
     }
 
     if (e.key === 'ArrowUp') {
+      if (input.onkeydown) return;
       e.preventDefault();
       if (!history.length) return;
       if (historyIdx === -1) historySaved = input.value;
@@ -649,6 +696,7 @@
     }
 
     if (e.key === 'ArrowDown') {
+      if (input.onkeydown) return;
       e.preventDefault();
       if (historyIdx === -1) return;
       historyIdx--;
