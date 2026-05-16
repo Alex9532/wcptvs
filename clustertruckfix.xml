@@ -18,14 +18,14 @@
           </title>
           <style>
             body {
-              margin: 0; /* Removes default browser padding/margin */
+              margin: 0; /* ngl this css was vibecoded */
             }
             iframe {
               position: absolute;
               top: 0;
               left: 0;
-              width: 100vw;   /* 100% of viewport width */
-              height: 100vh;  /* 100% of viewport height */
+              width: 100vw;
+              height: 100vh;
               border: none;
             }
           </style>
