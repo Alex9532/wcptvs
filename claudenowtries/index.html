@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- Created by Claude, I adapted some of the code -->
 <html lang="en">
+<!-- Created by Claude, I adapted some of the code -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -245,7 +245,39 @@
       align-items: center;
       gap: 10px;
       margin-bottom: 12px;
+      flex-wrap: wrap;
     }
+    .upload-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .upload-toggle input[type=checkbox] { display: none; }
+    .toggle-track {
+      width: 28px; height: 16px;
+      background: var(--border-hi);
+      border-radius: 8px;
+      position: relative;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      width: 10px; height: 10px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: transform .2s, background .2s;
+    }
+    .upload-toggle input:checked + .toggle-track { background: var(--cyan); }
+    .upload-toggle input:checked + .toggle-track::after { transform: translateX(12px); background: #fff; }
     .upload-btn {
       display: flex;
       align-items: center;
@@ -300,6 +332,11 @@
         </svg>
         upload file
       </button>
+      <label class="upload-toggle" title="When on, .zip and .tgz files are unpacked into the container. When off, they are written as raw files.">
+        <input type="checkbox" id="extract-toggle" checked />
+        <span class="toggle-track"></span>
+        extract archives
+      </label>
       <span class="upload-hint" id="upload-hint">no file selected</span>
     </div>
 
@@ -337,9 +374,10 @@
   const dot       = document.getElementById('status-dot');
   const badge     = document.getElementById('status-badge');
   const chipBtns  = document.querySelectorAll('.chip');
-  const uploadBtn = document.getElementById('upload-btn');
-  const zipInput  = document.getElementById('zip-input');
-  const uploadHint = document.getElementById('upload-hint');
+  const uploadBtn     = document.getElementById('upload-btn');
+  const zipInput      = document.getElementById('zip-input');
+  const uploadHint    = document.getElementById('upload-hint');
+  const extractToggle = document.getElementById('extract-toggle');
 
   let wc = null;
   let cwd = '/';
@@ -424,6 +462,22 @@
             name: 'wc-terminal',
             version: '1.0.0',
             description: 'WebContainer interactive terminal',
+          }, null, 2),
+        },
+      },
+      'package-lock.json': {
+        file: {
+          contents: JSON.stringify({
+            name: 'wc-terminal',
+            version: '1.0.0',
+            lockfileVersion: 2,
+            requires: true,
+            packages: {
+              '': {
+                name: 'wc-terminal',
+                version: '1.0.0',
+              },
+            },
           }, null, 2),
         },
       },
@@ -541,7 +595,7 @@
       return false;
     }
 
-    const reg = await navigator.serviceWorker.register('sw.js');
+    const reg = await navigator.serviceWorker.register('sw-but-no-internet.js');
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
@@ -736,9 +790,10 @@
     const name = file.name.toLowerCase();
     const isTgz = name.endsWith('.tgz') || name.endsWith('.tar.gz');
     const isZip = name.endsWith('.zip');
+    const shouldExtract = extractToggle.checked && (isTgz || isZip);
 
     try {
-      if (isZip) {
+      if (isZip && shouldExtract) {
         // ── ZIP ──────────────────────────────────────────────────
         let zip;
         try {
@@ -754,7 +809,7 @@
         await wc.mount(tree);
         log(`Mounted ${file.name} ✓`, 'ok');
 
-      } else if (isTgz) {
+      } else if (isTgz && shouldExtract) {
         // ── TGZ / TAR.GZ ─────────────────────────────────────────
         const compressed = await readFileBytes(file);
         log('Decompressing…', 'sys');
