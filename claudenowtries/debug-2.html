@@ -304,7 +304,7 @@
     <div class="chips" id="chips">
       <button class="chip" disabled data-cmd="node --version">node --version</button>
       <button class="chip" disabled data-cmd="npm --version">npm --version</button>
-      <button class="chip" disabled data-cmd="npm install -g pnpm --prefix /home/.npm-global">install pnpm</button>
+      <button class="chip" disabled data-cmd="curl -fsSL https://get.pnpm.io/install.sh | sh -">install pnpm</button>
       <button class="chip" disabled data-cmd="ls -la">ls -la</button>
       <button class="chip" disabled data-cmd="cat package.json">cat package.json</button>
       <button class="chip" disabled data-cmd="node -e &quot;console.log('hello from node!')&quot;">run node snippet</button>
@@ -428,9 +428,6 @@
     });
     log('Filesystem mounted ✓', 'ok');
 
-    // Pre-create the XDG/pnpm/npm dirs that tools assume already exist.
-    // Using wc.fs.mkdir is more reliable than spawning a shell for this —
-    // no process overhead and guaranteed to run before any command is possible.
     log('Preparing environment…', 'sys');
     const dirs = [
       '/home/.npm-global/bin',
@@ -441,8 +438,12 @@
     for (const dir of dirs) {
       await wc.fs.mkdir(dir, { recursive: true });
     }
-    // pnpm tries to open config.yaml before writing it — create it if absent
     await wc.fs.writeFile('/home/.config/pnpm/config.yaml', '');
+
+    // Verify the file actually landed
+    const verify = await wc.spawn('/bin/sh', ['-c', 'ls /home/.config/pnpm/config.yaml && echo "config.yaml ok"'], { env: spawnEnv });
+    verify.output.pipeTo(new WritableStream({ write(c) { log(stripAnsi(c).trim(), 'dim'); } }));
+    await verify.exit;
     log('Environment ready ✓', 'ok');
 
     logSep();
