@@ -449,7 +449,7 @@
       const target = cmd.slice(2).trim() || '/';
       try {
         // Use sh to resolve the path (handles .., ~, relative paths) and print it
-        const proc = await wc.spawn('/bin/sh', ['-c', `cd ${JSON.stringify(target)} && pwd`], { cwd });
+        const proc = await wc.spawn('/bin/sh', ['-c', `cd '${target.replace(/'/g, "'\\''")}' && pwd`], { cwd });
         let resolved = '';
         proc.output.pipeTo(new WritableStream({
           write(chunk) { resolved += chunk; }
