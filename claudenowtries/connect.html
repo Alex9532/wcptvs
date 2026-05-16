@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Connecting…</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0d0f12;
+      font-family: 'Berkeley Mono', monospace;
+      color: #545b6b;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <span>connecting to webcontainer…</span>
+  <script type="module">
+    import { WebContainer } from 'https://esm.sh/@webcontainer/api';
+    // Hand the full URL (including the session token path) to the API.
+    // WebContainer.connect() reads the token from window.location and
+    // redirects the browser to the correct internal server URL.
+    await WebContainer.connect(window.location.href);
+  </script>
+</body>
+</html>
