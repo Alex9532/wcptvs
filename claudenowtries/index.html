@@ -12,7 +12,8 @@
     {
       "imports": {
         "@webcontainer/api": "https://esm.sh/@webcontainer/api",
-        "jszip": "https://esm.sh/jszip"
+        "jszip": "https://esm.sh/jszip",
+        "fflate": "https://esm.sh/fflate"
       }
     }
   </script>
@@ -291,13 +292,13 @@
 
   <div>
     <div class="upload-bar">
-      <input type="file" id="zip-input" accept=".zip" />
+      <input type="file" id="zip-input" accept="*" />
       <button class="upload-btn" id="upload-btn" disabled>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M8 2v8M5 5l3-3 3 3"/>
           <path d="M2 11v1a2 2 0 002 2h8a2 2 0 002-2v-1"/>
         </svg>
-        upload zip
+        upload file
       </button>
       <span class="upload-hint" id="upload-hint">no file selected</span>
     </div>
@@ -328,6 +329,7 @@
 <script type="module">
   import { WebContainer } from '@webcontainer/api';
   import JSZip from 'jszip';
+  import { decompress, unzipSync } from 'fflate';
 
   const termEl    = document.getElementById('terminal');
   const input     = document.getElementById('cmd-input');
@@ -618,49 +620,148 @@
 
   uploadBtn.addEventListener('click', () => zipInput.click());
 
-  zipInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    uploadHint.textContent = file.name;
+  // ── File upload handler ──────────────────────────────────────────
+  function lockUI() {
     uploadBtn.disabled = true;
     input.disabled = true;
     runBtn.disabled = true;
     chipBtns.forEach(b => b.disabled = true);
+  }
 
-    logSep();
-    log(`Uploading ${file.name}…`, 'sys');
-
-    let zip;
-    try {
-      zip = await JSZip.loadAsync(file);
-    } catch (err) {
-      log('Failed to parse zip: ' + err.message, 'err');
-      uploadBtn.disabled = false;
-      input.disabled = false;
-      runBtn.disabled = false;
-      chipBtns.forEach(b => b.disabled = false);
-      return;
-    }
-
-    const fileCount = Object.values(zip.files).filter(f => !f.dir && !f.name.startsWith('__MACOSX/')).length;
-    log(`Unpacking ${fileCount} file${fileCount !== 1 ? 's' : ''}…`, 'sys');
-
-    const tree = await zipToMountTree(zip);
-
-    log('Mounting into WebContainer…', 'sys');
-    await wc.mount(tree);
-
-    log(`Mounted ${file.name} ✓`, 'ok');
-    logSep();
-
+  function unlockUI() {
     uploadBtn.disabled = false;
     input.disabled = false;
     runBtn.disabled = false;
     chipBtns.forEach(b => b.disabled = false);
     zipInput.value = '';
     input.focus();
+  }
+
+  // Read a File into a Uint8Array
+  function readFileBytes(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(new Uint8Array(r.result));
+      r.onerror = () => reject(new Error('Failed to read file'));
+      r.readAsArrayBuffer(file);
+    });
+  }
+
+  // Parse a .tar byte stream (after gunzip) into a mount tree.
+  // tar format: 512-byte headers followed by file data padded to 512-byte blocks.
+  function parseTar(buffer) {
+    const tree = {};
+    let offset = 0;
+    const view = buffer;
+
+    function readStr(start, len) {
+      let end = start;
+      while (end < start + len && view[end] !== 0) end++;
+      return new TextDecoder().decode(view.slice(start, end));
+    }
+
+    while (offset + 512 <= view.length) {
+      const name = readStr(offset, 100).trim();
+      if (!name) break; // end-of-archive
+
+      const sizeOctal = readStr(offset + 124, 12).trim();
+      const size = parseInt(sizeOctal, 8) || 0;
+      const typeFlag = String.fromCharCode(view[offset + 156]);
+
+      offset += 512; // advance past header
+
+      const isDir = typeFlag === '5' || name.endsWith('/');
+      const cleanName = name.replace(/\/$/, '');
+      const parts = cleanName.split('/').filter(Boolean);
+
+      // Skip __MACOSX and .DS_Store noise
+      if (!parts.length || parts[0] === '__MACOSX' || parts[parts.length - 1] === '.DS_Store') {
+        offset += Math.ceil(size / 512) * 512;
+        continue;
+      }
+
+      if (isDir) {
+        setDeep(tree, parts, { directory: {} });
+      } else if (typeFlag === '0' || typeFlag === '\0' || typeFlag === '') {
+        const contents = view.slice(offset, offset + size);
+        setDeep(tree, parts, { file: { contents } });
+      }
+
+      offset += Math.ceil(size / 512) * 512;
+    }
+
+    return tree;
+  }
+
+  zipInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    uploadHint.textContent = file.name;
+    lockUI();
+    logSep();
+    log(`Uploading ${file.name}…`, 'sys');
+
+    const name = file.name.toLowerCase();
+    const isTgz = name.endsWith('.tgz') || name.endsWith('.tar.gz');
+    const isZip = name.endsWith('.zip');
+
+    try {
+      if (isZip) {
+        // ── ZIP ──────────────────────────────────────────────────
+        let zip;
+        try {
+          zip = await JSZip.loadAsync(file);
+        } catch (err) {
+          log('Failed to parse zip: ' + err.message, 'err');
+          unlockUI(); return;
+        }
+        const fileCount = Object.values(zip.files).filter(f => !f.dir && !f.name.startsWith('__MACOSX/')).length;
+        log(`Unpacking ${fileCount} file${fileCount !== 1 ? 's' : ''}…`, 'sys');
+        const tree = await zipToMountTree(zip);
+        log('Mounting into WebContainer…', 'sys');
+        await wc.mount(tree);
+        log(`Mounted ${file.name} ✓`, 'ok');
+
+      } else if (isTgz) {
+        // ── TGZ / TAR.GZ ─────────────────────────────────────────
+        const compressed = await readFileBytes(file);
+        log('Decompressing…', 'sys');
+        const tarBytes = await new Promise((resolve, reject) => {
+          decompress(compressed, (err, data) => err ? reject(err) : resolve(data));
+        });
+        log('Parsing tar archive…', 'sys');
+        const tree = parseTar(tarBytes);
+        const fileCount = countFiles(tree);
+        log(`Unpacking ${fileCount} file${fileCount !== 1 ? 's' : ''}…`, 'sys');
+        log('Mounting into WebContainer…', 'sys');
+        await wc.mount(tree);
+        log(`Mounted ${file.name} ✓`, 'ok');
+
+      } else {
+        // ── Plain file — write directly into cwd ─────────────────
+        const bytes = await readFileBytes(file);
+        const destPath = file.name;
+        await wc.fs.writeFile(destPath, bytes);
+        log(`Wrote ${file.name} (${bytes.length} bytes) into container root ✓`, 'ok');
+      }
+    } catch (err) {
+      log('Upload failed: ' + err.message, 'err');
+    }
+
+    logSep();
+    unlockUI();
   });
+
+  // Count leaf files in a mount tree
+  function countFiles(tree) {
+    let n = 0;
+    for (const v of Object.values(tree)) {
+      if (v.file) n++;
+      else if (v.directory) n += countFiles(v.directory);
+    }
+    return n;
+  }
 
   // ── Init ────────────────────────────────────────────────────────
   const ok = await ensureCrossOriginIsolated();
