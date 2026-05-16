@@ -20,11 +20,10 @@
 <body>
   <span>connecting to webcontainer…</span>
   <script type="module">
-    import { WebContainer } from 'https://esm.sh/@webcontainer/api';
-    // Hand the full URL (including the session token path) to the API.
-    // WebContainer.connect() reads the token from window.location and
-    // redirects the browser to the correct internal server URL.
-    await WebContainer.connect(window.location.href);
+    // IMPORTANT: this page must NOT be cross-origin isolated.
+    // The service worker serves it with COEP: unsafe-none specifically for this reason.
+    import { setupConnect } from 'https://esm.sh/@webcontainer/api/connect';
+    setupConnect();
   </script>
 </body>
 </html>
