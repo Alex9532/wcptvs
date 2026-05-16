@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebContainer Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono:ital,wght@0,100..700;1,100..700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@webcontainer/api": "https://esm.sh/@webcontainer/api",
+        "jszip": "https://esm.sh/jszip"
+      }
+    }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f12;
+      --surface:   #13161b;
+      --border:    #1e2229;
+      --border-hi: #2a2f3a;
+      --text:      #c8cdd8;
+      --text-dim:  #545b6b;
+      --text-hi:   #eef0f4;
+      --green:     #4ade80;
+      --green-dim: #166534;
+      --amber:     #fbbf24;
+      --red:       #f87171;
+      --blue:      #60a5fa;
+      --cyan:      #22d3ee;
+      --prompt:    #4ade80;
+      --radius:    6px;
+      --mono:      'Berkeley Mono', 'Fira Code', monospace;
+      --sans:      'DM Sans', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ── */
+    .shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 0 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-hi);
+      letter-spacing: 0.04em;
+    }
+
+    .logo-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      flex-shrink: 0;
+    }
+    .logo-dot.booting { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 1.2s ease-in-out infinite; }
+    .logo-dot.error   { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .status-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border-hi);
+      color: var(--text-dim);
+      background: var(--surface);
+      transition: all .3s;
+    }
+    .status-badge.ready  { color: var(--green); border-color: var(--green-dim); background: #052e16; }
+    .status-badge.error  { color: var(--red);   border-color: #7f1d1d; background: #1c0a0a; }
+    .status-badge.booting { color: var(--amber); border-color: #78350f; background: #1c0e00; }
+
+    /* ── Terminal ── */
+    .terminal-wrap {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 0;
+    }
+
+    .terminal {
+      flex: 1;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.75;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      scroll-behavior: smooth;
+    }
+
+    /* Custom scrollbar */
+    .terminal::-webkit-scrollbar { width: 6px; }
+    .terminal::-webkit-scrollbar-track { background: transparent; }
+    .terminal::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+    .line { display: flex; gap: 8px; align-items: baseline; padding: 0; }
+    .line + .line { margin-top: 1px; }
+
+    .line-prefix {
+      flex-shrink: 0;
+      color: var(--text-dim);
+      user-select: none;
+      font-size: 11px;
+    }
+    .line-prefix.cmd  { color: var(--prompt); }
+    .line-prefix.sys  { color: var(--cyan); }
+    .line-prefix.err  { color: var(--red); }
+
+    .line-text { white-space: pre-wrap; word-break: break-all; color: var(--text); }
+    .line-text.cmd  { color: var(--text-hi); font-weight: 500; }
+    .line-text.sys  { color: var(--cyan); }
+    .line-text.err  { color: var(--red); }
+    .line-text.ok   { color: var(--green); }
+    .line-text.dim  { color: var(--text-dim); }
+    .line-text.amber { color: var(--amber); }
+
+    /* separator */
+    .sep {
+      height: 1px;
+      background: var(--border);
+      margin: 10px 0;
+      opacity: .6;
+    }
+
+    /* ── Input bar ── */
+    .input-bar {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      transition: border-color .15s;
+    }
+    .input-bar:focus-within { border-color: var(--border-hi); }
+
+    .input-prompt {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--prompt);
+      padding: 0 6px 0 14px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    #cmd-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-hi);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      padding: 11px 0;
+      caret-color: var(--green);
+    }
+    #cmd-input::placeholder { color: var(--text-dim); }
+    #cmd-input:disabled { opacity: .4; cursor: not-allowed; }
+
+    .run-btn {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      border: none;
+      border-left: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 0 14px;
+      height: 100%;
+      cursor: pointer;
+      transition: color .15s, background .15s;
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .run-btn:hover:not(:disabled) { color: var(--text-hi); background: var(--border); }
+    .run-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .run-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+    /* quick-action chips */
+    .chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .chip {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      color: var(--text-dim);
+      background: transparent;
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .chip:hover:not(:disabled) { color: var(--text-hi); border-color: var(--text-dim); }
+    .chip:disabled { opacity: .3; cursor: not-allowed; }
+
+    /* ── Zip upload ── */
+    .upload-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .upload-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 12px;
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      color: var(--text-dim);
+      background: transparent;
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .upload-btn:hover:not(:disabled) { color: var(--cyan); border-color: var(--cyan); }
+    .upload-btn:disabled { opacity: .3; cursor: not-allowed; }
+    .upload-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+    #zip-input { display: none; }
+    .upload-hint {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div class="logo">
+      <div class="logo-dot booting" id="status-dot"></div>
+      webcontainer / terminal
+    </div>
+    <div class="status-badge booting" id="status-badge">booting…</div>
+  </header>
+
+  <div class="terminal-wrap">
+    <div class="terminal" id="terminal"></div>
+  </div>
+
+  <div>
+    <div class="upload-bar">
+      <input type="file" id="zip-input" accept=".zip" />
+      <button class="upload-btn" id="upload-btn" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 2v8M5 5l3-3 3 3"/>
+          <path d="M2 11v1a2 2 0 002 2h8a2 2 0 002-2v-1"/>
+        </svg>
+        upload zip
+      </button>
+      <span class="upload-hint" id="upload-hint">no file selected</span>
+    </div>
+
+    <div class="chips" id="chips">
+      <button class="chip" disabled data-cmd="node --version">node --version</button>
+      <button class="chip" disabled data-cmd="npm --version">npm --version</button>
+      <button class="chip" disabled data-cmd="ls -la">ls -la</button>
+      <button class="chip" disabled data-cmd="cat package.json">cat package.json</button>
+      <button class="chip" disabled data-cmd="node -e &quot;console.log('hello from node!')&quot;">run node snippet</button>
+    </div>
+
+    <div class="input-bar">
+      <span class="input-prompt" id="input-prompt">~&nbsp;$</span>
+      <input id="cmd-input" type="text" placeholder="enter a command…" disabled autocomplete="off" spellcheck="false" />
+      <button class="run-btn" id="run-btn" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="4,2 14,8 4,14" fill="currentColor" stroke="none"/>
+        </svg>
+        run
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+  import { WebContainer } from '@webcontainer/api';
+  import JSZip from 'jszip';
+
+  const termEl    = document.getElementById('terminal');
+  const input     = document.getElementById('cmd-input');
+  const runBtn    = document.getElementById('run-btn');
+  const dot       = document.getElementById('status-dot');
+  const badge     = document.getElementById('status-badge');
+  const chipBtns  = document.querySelectorAll('.chip');
+  const uploadBtn = document.getElementById('upload-btn');
+  const zipInput  = document.getElementById('zip-input');
+  const uploadHint = document.getElementById('upload-hint');
+
+  let wc = null;
+  let cwd = '/';
+
+  function updatePrompt() {
+    const display = cwd === '/' ? '~' : cwd.replace(/^\//, '');
+    document.getElementById('input-prompt').textContent = display + ' $\u00a0';
+  }
+
+  // ── Logging helpers ──────────────────────────────────────────────
+  function log(text, type = '') {
+    const line = document.createElement('div');
+    line.className = 'line';
+
+    const prefix = document.createElement('span');
+    const content = document.createElement('span');
+
+    if (type === 'cmd') {
+      prefix.className = 'line-prefix cmd';
+      prefix.textContent = '$';
+    } else if (type === 'sys') {
+      prefix.className = 'line-prefix sys';
+      prefix.textContent = '▸';
+    } else if (type === 'err') {
+      prefix.className = 'line-prefix err';
+      prefix.textContent = '✕';
+    } else {
+      prefix.className = 'line-prefix';
+      prefix.textContent = ' ';
+    }
+
+    content.className = 'line-text' + (type ? ' ' + type : '');
+    content.textContent = text;
+
+    line.append(prefix, content);
+    termEl.appendChild(line);
+    termEl.scrollTop = termEl.scrollHeight;
+    return content;
+  }
+
+  function logSep() {
+    const d = document.createElement('div');
+    d.className = 'sep';
+    termEl.appendChild(d);
+  }
+
+  function setReady() {
+    dot.className = 'logo-dot';
+    badge.className = 'status-badge ready';
+    badge.textContent = 'ready';
+    input.disabled = false;
+    runBtn.disabled = false;
+    chipBtns.forEach(b => b.disabled = false);
+    uploadBtn.disabled = false;
+    input.focus();
+  }
+
+  function setError(msg) {
+    dot.className = 'logo-dot error';
+    badge.className = 'status-badge error';
+    badge.textContent = 'error';
+    log(msg, 'err');
+  }
+
+  // ── Boot ────────────────────────────────────────────────────────
+  async function boot() {
+    log('Initialising WebContainer…', 'sys');
+
+    try {
+      wc = await WebContainer.boot();
+      log('WebContainer booted ✓', 'ok');
+    } catch (e) {
+      setError('WebContainer.boot() failed: ' + e.message);
+      return;
+    }
+
+    // Mount a minimal package.json so npm commands work
+    log('Mounting filesystem…', 'sys');
+    await wc.mount({
+      'package.json': {
+        file: {
+          contents: JSON.stringify({
+            name: 'wc-terminal',
+            version: '1.0.0',
+            description: 'WebContainer interactive terminal',
+          }, null, 2),
+        },
+      },
+    });
+    log('Filesystem mounted ✓', 'ok');
+    logSep();
+    log('Container ready. Type a command below.', 'dim');
+    logSep();
+
+    setReady();
+  }
+
+  // ── Run a command ───────────────────────────────────────────────
+  async function runCommand(raw) {
+    const cmd = raw.trim();
+    if (!cmd) return;
+
+    log(cmd, 'cmd');
+    input.disabled = true;
+    runBtn.disabled = true;
+    chipBtns.forEach(b => b.disabled = true);
+
+    // Intercept cd — it's a shell built-in and can't be spawned directly.
+    // We resolve the new path ourselves and verify it exists via pwd.
+    if (/^cd(\s|$)/.test(cmd)) {
+      const target = cmd.slice(2).trim() || '/';
+      try {
+        const shellCmd = `cd '${target.replace(/'/g, "'\\''")}' && pwd`;
+        log(`debug: cwd="${cwd}" target="${target}" shell="${shellCmd}"`, 'dim');
+        const proc = await wc.spawn('/bin/sh', ['-c', shellCmd], { cwd });
+        let resolved = '';
+        let errOut = '';
+        proc.output.pipeTo(new WritableStream({
+          write(chunk) { resolved += chunk; }
+        }));
+        if (proc.stderr) {
+          proc.stderr.pipeTo(new WritableStream({
+            write(chunk) { errOut += chunk; }
+          }));
+        }
+        const code = await proc.exit;
+        if (code === 0) {
+          cwd = resolved.trim();
+          updatePrompt();
+        } else {
+          log(`cd failed (code ${code}): ${errOut.trim() || 'no stderr'}`, 'err');
+        }
+      } catch (e) {
+        log(e.message, 'err');
+      }
+      logSep();
+      input.disabled = false;
+      runBtn.disabled = false;
+      chipBtns.forEach(b => b.disabled = false);
+      input.focus();
+      return;
+    }
+
+    // All other commands: run via /bin/sh -c so pipes, &&, etc. work too
+    const outLine = log('', '');
+    let outputBuf = '';
+
+    try {
+      const proc = await wc.spawn('/bin/sh', ['-c', cmd], { cwd });
+
+      proc.output.pipeTo(new WritableStream({
+        write(chunk) {
+          outputBuf += chunk;
+          const lines = outputBuf.split('\n');
+          outputBuf = lines.pop();
+          for (const l of lines) {
+            if (outLine.textContent === '') {
+              outLine.textContent = l;
+            } else {
+              log(l);
+            }
+          }
+          termEl.scrollTop = termEl.scrollHeight;
+        }
+      }));
+
+      const code = await proc.exit;
+
+      if (outputBuf) {
+        if (outLine.textContent === '') {
+          outLine.textContent = outputBuf;
+        } else {
+          log(outputBuf);
+        }
+      }
+
+      if (code !== 0) {
+        log(`exited with code ${code}`, 'err');
+      }
+    } catch (e) {
+      log(e.message, 'err');
+    }
+
+    logSep();
+    input.disabled = false;
+    runBtn.disabled = false;
+    chipBtns.forEach(b => b.disabled = false);
+    input.focus();
+  }
+
+  // ── Service Worker registration + reload guard ──────────────────
+  async function ensureCrossOriginIsolated() {
+    if (crossOriginIsolated) return true;
+
+    if (!('serviceWorker' in navigator)) {
+      setError('Service workers not supported — cannot achieve cross-origin isolation.');
+      return false;
+    }
+
+    const reg = await navigator.serviceWorker.register('/sw.js');
+
+    if (!navigator.serviceWorker.controller) {
+      await new Promise(resolve => {
+        const sw = reg.installing || reg.waiting;
+        if (!sw) { resolve(); return; }
+        sw.addEventListener('statechange', e => {
+          if (e.target.state === 'activated') resolve();
+        });
+      });
+      location.reload();
+      return false;
+    }
+
+    return true;
+  }
+
+  // ── Event listeners ─────────────────────────────────────────────
+  runBtn.addEventListener('click', () => {
+    const v = input.value;
+    input.value = '';
+    runCommand(v);
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const v = input.value;
+      input.value = '';
+      runCommand(v);
+    }
+  });
+
+  chipBtns.forEach(btn => {
+    btn.addEventListener('click', () => runCommand(btn.dataset.cmd));
+  });
+
+  // ── Zip upload ───────────────────────────────────────────────────
+  function setDeep(obj, parts, value) {
+    const [head, ...rest] = parts;
+    if (rest.length === 0) {
+      obj[head] = value;
+    } else {
+      if (!obj[head]) obj[head] = { directory: {} };
+      setDeep(obj[head].directory, rest, value);
+    }
+  }
+
+  async function zipToMountTree(zip) {
+    const tree = {};
+    const tasks = [];
+    zip.forEach((relativePath, entry) => {
+      if (relativePath.startsWith('__MACOSX/')) return;
+      if (entry.dir) {
+        setDeep(tree, relativePath.replace(/\/$/, '').split('/'), { directory: {} });
+      } else {
+        tasks.push(
+          entry.async('uint8array').then((contents) => {
+            setDeep(tree, relativePath.split('/'), { file: { contents } });
+          })
+        );
+      }
+    });
+    await Promise.all(tasks);
+    return tree;
+  }
+
+  uploadBtn.addEventListener('click', () => zipInput.click());
+
+  zipInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    uploadHint.textContent = file.name;
+    uploadBtn.disabled = true;
+    input.disabled = true;
+    runBtn.disabled = true;
+    chipBtns.forEach(b => b.disabled = true);
+
+    logSep();
+    log(`Uploading ${file.name}…`, 'sys');
+
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(file);
+    } catch (err) {
+      log('Failed to parse zip: ' + err.message, 'err');
+      uploadBtn.disabled = false;
+      input.disabled = false;
+      runBtn.disabled = false;
+      chipBtns.forEach(b => b.disabled = false);
+      return;
+    }
+
+    const fileCount = Object.values(zip.files).filter(f => !f.dir && !f.name.startsWith('__MACOSX/')).length;
+    log(`Unpacking ${fileCount} file${fileCount !== 1 ? 's' : ''}…`, 'sys');
+
+    const tree = await zipToMountTree(zip);
+
+    log('Mounting into WebContainer…', 'sys');
+    await wc.mount(tree);
+
+    log(`Mounted ${file.name} ✓`, 'ok');
+    logSep();
+
+    uploadBtn.disabled = false;
+    input.disabled = false;
+    runBtn.disabled = false;
+    chipBtns.forEach(b => b.disabled = false);
+    zipInput.value = '';
+    input.focus();
+  });
+
+  // ── Init ────────────────────────────────────────────────────────
+  const ok = await ensureCrossOriginIsolated();
+  if (ok) boot();
+</script>
+</body>
+</html>
