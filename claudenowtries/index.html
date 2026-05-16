@@ -427,6 +427,22 @@
       },
     });
     log('Filesystem mounted ✓', 'ok');
+
+    // Pre-create the XDG/pnpm/npm dirs that tools assume already exist.
+    // Using wc.fs.mkdir is more reliable than spawning a shell for this —
+    // no process overhead and guaranteed to run before any command is possible.
+    log('Preparing environment…', 'sys');
+    const dirs = [
+      '/home/.npm-global/bin',
+      '/home/.config/pnpm',
+      '/home/.local/share/pnpm',
+      '/home/.cache',
+    ];
+    for (const dir of dirs) {
+      await wc.fs.mkdir(dir, { recursive: true });
+    }
+    log('Environment ready ✓', 'ok');
+
     logSep();
     log('Container ready. Type a command below.', 'dim');
     logSep();
@@ -580,7 +596,14 @@
     npm_config_progress: 'false',
     npm_config_prefix: '/home/.npm-global',
     TERM: 'dumb',
-    PATH: '/home/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
+    HOME: '/home',
+    // XDG base dirs — point every tool at writable locations under /home
+    XDG_CONFIG_HOME: '/home/.config',
+    XDG_DATA_HOME:   '/home/.local/share',
+    XDG_CACHE_HOME:  '/home/.cache',
+    // pnpm reads PNPM_HOME for its store and bin location
+    PNPM_HOME: '/home/.local/share/pnpm',
+    PATH: '/home/.local/share/pnpm:/home/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
   };
 
   // ── ANSI escape code stripper ────────────────────────────────────
