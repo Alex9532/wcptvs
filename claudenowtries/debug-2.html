@@ -413,9 +413,6 @@
       return;
     }
 
-    // Mount the full initial filesystem in one call — wc.mount() is the
-    // only write API guaranteed to work before any process has run.
-    // This includes the pnpm config.yaml that pnpm expects to already exist.
     log('Mounting filesystem…', 'sys');
     await wc.mount({
       'package.json': {
@@ -427,36 +424,27 @@
           }, null, 2),
         },
       },
-      home: {
-        directory: {
-          '.config': {
-            directory: {
-              pnpm: {
-                directory: {
-                  'config.yaml': { file: { contents: '' } },
-                },
-              },
-            },
-          },
-          '.local': {
-            directory: {
-              share: {
-                directory: {
-                  pnpm: { directory: {} },
-                },
-              },
-            },
-          },
-          '.npm-global': {
-            directory: {
-              bin: { directory: {} },
-            },
-          },
-          '.cache': { directory: {} },
-        },
-      },
     });
     log('Filesystem mounted ✓', 'ok');
+
+    // Create pnpm/npm dirs at their true absolute system paths.
+    // We must NOT nest these under mount() — WebContainer already has a real
+    // /home directory and mount() writes into the project root, not /.
+    // wc.fs.mkdir with recursive:true is safe even if a dir already exists.
+    log('Preparing environment…', 'sys');
+    try {
+      await wc.fs.mkdir('/home/.config/pnpm', { recursive: true });
+      await wc.fs.mkdir('/home/.local/share/pnpm', { recursive: true });
+      await wc.fs.mkdir('/home/.npm-global/bin', { recursive: true });
+      await wc.fs.mkdir('/home/.cache', { recursive: true });
+      // Write the config file with explicit utf-8 encoding
+      await wc.fs.writeFile('/home/.config/pnpm/config.yaml', '', 'utf-8');
+      // Verify it actually landed
+      await wc.fs.readFile('/home/.config/pnpm/config.yaml', 'utf-8');
+      log('Environment ready ✓', 'ok');
+    } catch (e) {
+      log('Environment setup failed: ' + e.message, 'err');
+    }
 
     logSep();
     log('Container ready. Type a command below.', 'dim');
