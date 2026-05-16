@@ -438,7 +438,7 @@
     for (const dir of dirs) {
       await wc.fs.mkdir(dir, { recursive: true });
     }
-    await wc.fs.writeFile('/home/.config/pnpm/config.yaml', '');
+    await wc.fs.writeFile('/home/.config/pnpm/config.yaml', new Uint8Array(0));
 
     // Verify the file actually landed
     const verify = await wc.spawn('/bin/sh', ['-c', 'ls /home/.config/pnpm/config.yaml && echo "config.yaml ok"'], { env: spawnEnv });
