@@ -440,10 +440,13 @@
 
   // ── Service Worker registration + reload guard ──────────────────
   async function ensureCrossOriginIsolated() {
-    if (crossOriginIsolated) return true;
+    if (crossOriginIsolated) {
+      return true;
+    } else
+      setError('The WebContainer may not be booting, please try reloading.');
 
     if (!('serviceWorker' in navigator)) {
-      setError('Service workers not supported — cannot achieve cross-origin isolation.');
+      setError('Service workers not supported, cannot achieve cross-origin isolation.');
       return false;
     }
 
