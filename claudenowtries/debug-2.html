@@ -304,7 +304,7 @@
     <div class="chips" id="chips">
       <button class="chip" disabled data-cmd="node --version">node --version</button>
       <button class="chip" disabled data-cmd="npm --version">npm --version</button>
-      <button class="chip" disabled data-cmd="curl -fsSL https://get.pnpm.io/install.sh | sh -">install pnpm</button>
+      <button class="chip" disabled data-cmd="npm install -g pnpm --prefix /home/.npm-global">install pnpm</button>
       <button class="chip" disabled data-cmd="ls -la">ls -la</button>
       <button class="chip" disabled data-cmd="cat package.json">cat package.json</button>
       <button class="chip" disabled data-cmd="node -e &quot;console.log('hello from node!')&quot;">run node snippet</button>
@@ -413,7 +413,9 @@
       return;
     }
 
-    // Mount a minimal package.json so npm commands work
+    // Mount the full initial filesystem in one call — wc.mount() is the
+    // only write API guaranteed to work before any process has run.
+    // This includes the pnpm config.yaml that pnpm expects to already exist.
     log('Mounting filesystem…', 'sys');
     await wc.mount({
       'package.json': {
@@ -425,37 +427,39 @@
           }, null, 2),
         },
       },
+      home: {
+        directory: {
+          '.config': {
+            directory: {
+              pnpm: {
+                directory: {
+                  'config.yaml': { file: { contents: '' } },
+                },
+              },
+            },
+          },
+          '.local': {
+            directory: {
+              share: {
+                directory: {
+                  pnpm: { directory: {} },
+                },
+              },
+            },
+          },
+          '.npm-global': {
+            directory: {
+              bin: { directory: {} },
+            },
+          },
+          '.cache': { directory: {} },
+        },
+      },
     });
     log('Filesystem mounted ✓', 'ok');
 
-    log('Preparing environment…', 'sys');
-    const dirs = [
-      '/home/.npm-global/bin',
-      '/home/.config/pnpm',
-      '/home/.local/share/pnpm',
-      '/home/.cache',
-    ];
-    for (const dir of dirs) {
-      await wc.fs.mkdir(dir, { recursive: true });
-    }
-    await wc.fs.writeFile('/home/.config/pnpm/config.yaml', new Uint8Array(0));
-
-    // Verify the file actually landed
-    const verify = await wc.spawn('/bin/sh', ['-c', 'ls /home/.config/pnpm/config.yaml && echo "config.yaml ok"'], { env: spawnEnv });
-    verify.output.pipeTo(new WritableStream({ write(c) { log(stripAnsi(c).trim(), 'dim'); } }));
-    await verify.exit;
-    log('Environment ready ✓', 'ok');
-
     logSep();
     log('Container ready. Type a command below.', 'dim');
-
-    // Debug: discover what pnpm actually sees as its home/config paths
-    const probe = await wc.spawn('/bin/sh', ['-c',
-      'node -e "const os=require(\'os\'); console.log(\'homedir:\', os.homedir()); const p=require(\'path\'); console.log(\'config:\', p.join(os.homedir(), \'.config/pnpm/config.yaml\'))"'
-    ], { env: spawnEnv });
-    probe.output.pipeTo(new WritableStream({ write(c) { log(stripAnsi(c).trim(), 'dim'); } }));
-    await probe.exit;
-
     logSep();
 
     setReady();
@@ -608,11 +612,9 @@
     npm_config_prefix: '/home/.npm-global',
     TERM: 'dumb',
     HOME: '/home',
-    // XDG base dirs — point every tool at writable locations under /home
     XDG_CONFIG_HOME: '/home/.config',
     XDG_DATA_HOME:   '/home/.local/share',
     XDG_CACHE_HOME:  '/home/.cache',
-    // pnpm reads PNPM_HOME for its store and bin location
     PNPM_HOME: '/home/.local/share/pnpm',
     PATH: '/home/.local/share/pnpm:/home/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
   };
