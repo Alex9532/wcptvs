@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.63
+      webcontainer / terminal v1.6.64
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -494,7 +494,18 @@
         dot2.className = 'server-btn-dot';
         serverBtn.appendChild(dot2);
         serverBtn.appendChild(document.createTextNode(` :${port}`));
-        serverBtn.onclick = (e) => { e.preventDefault(); window.open(url, '_blank'); };
+        serverBtn.onclick = (e) => {
+          e.preventDefault();
+          // Extract the connect token from the server URL and open connect.html
+          // directly as a popup. This preserves window.opener (required by
+          // setupConnect) because no redirect chain is involved — the popup
+          // lands on connect.html immediately, within our SW scope.
+          const token = url.match(/--([a-z0-9]+)\.local/)?.[1] || '';
+          const connectUrl = new URL('./connect.html', window.location.href);
+          connectUrl.searchParams.set('token', token);
+          connectUrl.searchParams.set('serverUrl', url);
+          window.open(connectUrl.href, '_blank', 'noopener=no');
+        };
       });
     } catch (e) {
       setError('WebContainer.boot() failed: ' + e.message);
