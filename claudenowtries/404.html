@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Redirecting…</title>
   <script>
-    // GitHub Pages serves this 404.html before the service worker can intercept.
-    // We encode the requested path as a query param and redirect to the root,
-    // where the service worker is active and can handle /connect/* routes.
-    const path = window.location.pathname;
+    var path = window.location.pathname;
     if (path.includes('/connect/')) {
-      const redirectUrl = '/?redirect=' + encodeURIComponent(path + window.location.search);
-      window.location.replace(redirectUrl);
+      // Rewrite e.g. /webcontainer/connect/abc123
+      // to /wcptvs/claudenowtries/connect/abc123
+      // so the SW (scoped to /wcptvs/) can intercept and serve connect.html
+      var token = path.split('/connect/')[1];
+      window.location.replace('/wcptvs/claudenowtries/connect/' + token);
     }
   </script>
 </head>
