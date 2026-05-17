@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.5
+      webcontainer / terminal v1.6.6
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -489,16 +489,24 @@
       // Listen for any server the user starts — show an open button when ready
       wc.on('server-ready', (port, url) => {
         log(`Server detected on port ${port} → ${url}`, 'sys');
-        serverBtn.href = url;
         serverBtn.title = `Open server on port ${port}`;
-        serverBtn.querySelector('.server-btn-dot').style.display = '';
         serverBtn.classList.add('visible');
-        // Update URL if a new server starts on a different port
         serverBtn.textContent = '';
         const dot2 = document.createElement('span');
         dot2.className = 'server-btn-dot';
         serverBtn.appendChild(dot2);
         serverBtn.appendChild(document.createTextNode(` :${port}`));
+
+        // Open as a popup so window.opener is set — required by setupConnect().
+        // We open connect.html (within our SW scope and served with COEP: unsafe-none)
+        // which calls setupConnect(). WebContainer then redirects the popup to the
+        // actual server URL.
+        serverBtn.onclick = (e) => {
+          e.preventDefault();
+          const connectPage = new URL('./connect.html', window.location.href);
+          connectPage.searchParams.set('url', url);
+          window.open(connectPage.href, 'wc-preview', 'width=1000,height=700,noopener=no');
+        };
       });
     } catch (e) {
       setError('WebContainer.boot() failed: ' + e.message);
@@ -679,17 +687,6 @@
     runBtn.disabled = false;
     chipBtns.forEach(b => b.disabled = false);
     input.focus();
-  }
-
-  // Handle GitHub Pages 404 bounce-back for /connect/* routes.
-  // Instead of restoring the original out-of-scope path, we navigate
-  // to connect.html (within our SW scope) with the token as a query param.
-  const redirectPath = new URLSearchParams(window.location.search).get('redirect');
-  if (redirectPath && redirectPath.includes('/connect/')) {
-    const token = redirectPath.split('/connect/')[1];
-    const connectPage = new URL('./connect.html', window.location.href);
-    connectPage.searchParams.set('token', token);
-    window.location.replace(connectPage.href);
   }
 
   // ── Service Worker registration + reload guard ──────────────────
