@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.6
+      webcontainer / terminal
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -486,7 +486,7 @@
       wc = await WebContainer.boot();
       log('WebContainer booted ✓', 'ok');
 
-      // Listen for any server the user starts — show an open button when ready
+      // Listen for any server the user starts
       wc.on('server-ready', (port, url) => {
         log(`Server detected on port ${port} → ${url}`, 'sys');
         serverBtn.title = `Open server on port ${port}`;
@@ -497,15 +497,30 @@
         serverBtn.appendChild(dot2);
         serverBtn.appendChild(document.createTextNode(` :${port}`));
 
-        // Open as a popup so window.opener is set — required by setupConnect().
-        // We open connect.html (within our SW scope and served with COEP: unsafe-none)
-        // which calls setupConnect(). WebContainer then redirects the popup to the
-        // actual server URL.
         serverBtn.onclick = (e) => {
           e.preventDefault();
-          const connectPage = new URL('./connect.html', window.location.href);
-          connectPage.searchParams.set('url', url);
-          window.open(connectPage.href, 'wc-preview', 'width=1000,height=700,noopener=no');
+
+          // Load the server URL in a hidden iframe first. This completes the
+          // WebContainer storage handshake in the context of this page (where
+          // the SW is active), so when we open the same URL in a new tab
+          // immediately after, the browser already has the shared context and
+          // the connect dance is skipped.
+          const primer = document.createElement('iframe');
+          primer.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;';
+          primer.src = url;
+          document.body.appendChild(primer);
+
+          primer.addEventListener('load', () => {
+            // Handshake done — open the real tab and clean up
+            window.open(url, '_blank');
+            setTimeout(() => primer.remove(), 2000);
+          }, { once: true });
+
+          // Fallback: open anyway after 3s in case the iframe load never fires
+          setTimeout(() => {
+            window.open(url, '_blank');
+            primer.remove();
+          }, 3000);
         };
       });
     } catch (e) {
@@ -698,11 +713,12 @@
       return false;
     }
 
-    // Use a relative path so the SW is scoped to wherever this page lives,
-    // whether that's the root or a deep subfolder like /wcptvs/claudenowtries/
-    const swPath = new URL('./sw.js', window.location.href).pathname;
-    const scope  = new URL('./',      window.location.href).pathname;
-    const reg = await navigator.serviceWorker.register(swPath, { scope });
+    // sw.js must live at the repo root (/sw.js) so its scope covers /
+    // including /webcontainer/connect/* which WebContainer hardcodes.
+    // A SW can only control pages within its scope, and scope can't exceed
+    // the SW script's own directory without a Service-Worker-Allowed header
+    // (which GitHub Pages doesn't support).
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
