@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.3
+      webcontainer / terminal v1.6.5
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -681,10 +681,15 @@
     input.focus();
   }
 
-  // Handle GitHub Pages 404 bounce-back for /connect/* routes
+  // Handle GitHub Pages 404 bounce-back for /connect/* routes.
+  // Instead of restoring the original out-of-scope path, we navigate
+  // to connect.html (within our SW scope) with the token as a query param.
   const redirectPath = new URLSearchParams(window.location.search).get('redirect');
   if (redirectPath && redirectPath.includes('/connect/')) {
-    history.replaceState(null, '', redirectPath);
+    const token = redirectPath.split('/connect/')[1];
+    const connectPage = new URL('./connect.html', window.location.href);
+    connectPage.searchParams.set('token', token);
+    window.location.replace(connectPage.href);
   }
 
   // ── Service Worker registration + reload guard ──────────────────
@@ -696,7 +701,11 @@
       return false;
     }
 
-    const reg = await navigator.serviceWorker.register('sw.js');
+    // Use a relative path so the SW is scoped to wherever this page lives,
+    // whether that's the root or a deep subfolder like /wcptvs/claudenowtries/
+    const swPath = new URL('./sw.js', window.location.href).pathname;
+    const scope  = new URL('./',      window.location.href).pathname;
+    const reg = await navigator.serviceWorker.register(swPath, { scope });
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
