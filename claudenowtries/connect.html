@@ -1,20 +1,31 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><title>Connecting…</title></head>
+<head><meta charset="UTF-8"><title>Connecting…</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0d0f12; font-family:monospace; color:#545b6b; font-size:13px; }
+</style>
+</head>
 <body>
+<span>connecting…</span>
 <script type="module">
   import { setupConnect } from 'https://esm.sh/@webcontainer/api/connect';
 
-  // setupConnect() requires window.location.pathname to be /webcontainer/connect/<token>.
-  // The SW serves this file at /wcptvs/claudenowtries/connect/<token>, so we
-  // use replaceState to rewrite the path to what setupConnect() expects
-  // before it reads window.location.
-  const token = window.location.pathname.split('/connect/')[1];
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  const serverUrl = params.get('serverUrl');
+
+  // Rewrite the path to what setupConnect() requires before it reads window.location
   if (token) {
     history.replaceState(null, '', '/webcontainer/connect/' + token);
   }
 
-  setupConnect();
+  // window.opener must be set — this page must be opened via window.open()
+  // with noopener=no (the default). Navigating here breaks opener.
+  await setupConnect();
+
+  // After handshake, navigate to the actual server
+  if (serverUrl) window.location.replace(serverUrl);
 </script>
 </body>
 </html>
