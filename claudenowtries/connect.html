@@ -4,6 +4,16 @@
 <body>
 <script type="module">
   import { setupConnect } from 'https://esm.sh/@webcontainer/api/connect';
+
+  // setupConnect() requires window.location.pathname to be /webcontainer/connect/<token>.
+  // The SW serves this file at /wcptvs/claudenowtries/connect/<token>, so we
+  // use replaceState to rewrite the path to what setupConnect() expects
+  // before it reads window.location.
+  const token = window.location.pathname.split('/connect/')[1];
+  if (token) {
+    history.replaceState(null, '', '/webcontainer/connect/' + token);
+  }
+
   setupConnect();
 </script>
 </body>
