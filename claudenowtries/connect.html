@@ -20,19 +20,11 @@
 <body>
   <span>connecting to webcontainer…</span>
   <script type="module">
-    // IMPORTANT: this page must NOT be cross-origin isolated.
-    // The service worker serves it with COEP: unsafe-none for this reason.
     import { setupConnect } from 'https://esm.sh/@webcontainer/api/connect';
-
-    // The token arrives as ?token=... because the SW can't intercept
-    // /webcontainer/connect/* (it's outside our scope on GitHub Pages).
-    const token = new URLSearchParams(window.location.search).get('token');
-    if (token) {
-      // Reconstruct the canonical connect URL that setupConnect expects
-      const connectUrl = window.location.origin + '/webcontainer/connect/' + token;
-      history.replaceState(null, '', '/webcontainer/connect/' + token);
-    }
-    setupConnect();
+    // After the handshake completes, navigate the popup to the actual server URL.
+    const serverUrl = new URLSearchParams(window.location.search).get('url');
+    await setupConnect();
+    if (serverUrl) window.location.replace(serverUrl);
   </script>
 </body>
 </html>
