@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.65
+      webcontainer / terminal v1.6.66
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -496,9 +496,14 @@
         serverBtn.appendChild(document.createTextNode(` :${port}`));
         serverBtn.onclick = (e) => {
           e.preventDefault();
-          // Open directly — WebContainer redirects to /webcontainer/connect/<token>
-          // which the root-scoped SW intercepts and serves connect.html for.
-          window.open(url, '_blank', 'noopener=no');
+          // Opening the server URL directly causes a cross-origin redirect to
+          // /webcontainer/connect/<token>, which clears window.opener.
+          // Instead we open connect.html on our own domain first (preserving
+          // opener), pass the server URL as a param, and let connect.html
+          // navigate itself after the handshake completes.
+          const dest = new URL('./connect.html', window.location.href);
+          dest.searchParams.set('serverUrl', url);
+          window.open(dest.href, '_blank', 'noopener=no');
         };
       });
     } catch (e) {
