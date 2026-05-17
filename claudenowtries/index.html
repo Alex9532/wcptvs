@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.61
+      webcontainer / terminal v1.6.63
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -486,42 +486,15 @@
       wc = await WebContainer.boot();
       log('WebContainer booted ✓', 'ok');
 
-      // Listen for any server the user starts
       wc.on('server-ready', (port, url) => {
         log(`Server detected on port ${port} → ${url}`, 'sys');
-        serverBtn.title = `Open server on port ${port}`;
         serverBtn.classList.add('visible');
         serverBtn.textContent = '';
         const dot2 = document.createElement('span');
         dot2.className = 'server-btn-dot';
         serverBtn.appendChild(dot2);
         serverBtn.appendChild(document.createTextNode(` :${port}`));
-
-        serverBtn.onclick = (e) => {
-          e.preventDefault();
-
-          // Load the server URL in a hidden iframe first. This completes the
-          // WebContainer storage handshake in the context of this page (where
-          // the SW is active), so when we open the same URL in a new tab
-          // immediately after, the browser already has the shared context and
-          // the connect dance is skipped.
-          const primer = document.createElement('iframe');
-          primer.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;';
-          primer.src = url;
-          document.body.appendChild(primer);
-
-          primer.addEventListener('load', () => {
-            // Handshake done — open the real tab and clean up
-            window.open(url, '_blank');
-            setTimeout(() => primer.remove(), 2000);
-          }, { once: true });
-
-          // Fallback: open anyway after 3s in case the iframe load never fires
-          setTimeout(() => {
-            window.open(url, '_blank');
-            primer.remove();
-          }, 3000);
-        };
+        serverBtn.onclick = (e) => { e.preventDefault(); window.open(url, '_blank'); };
       });
     } catch (e) {
       setError('WebContainer.boot() failed: ' + e.message);
@@ -718,7 +691,7 @@
     // A SW can only control pages within its scope, and scope can't exceed
     // the SW script's own directory without a Service-Worker-Allowed header
     // (which GitHub Pages doesn't support).
-    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const reg = await navigator.serviceWorker.register('./sw.js');
 
     if (!navigator.serviceWorker.controller) {
       await new Promise(resolve => {
