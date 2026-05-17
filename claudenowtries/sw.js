@@ -1,12 +1,13 @@
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Serve connect.html for any /connect/* path.
+  // Serve connect.html for any .../connect/* path under our scope.
   // CRITICAL: this page must NOT be cross-origin isolated, so we set
   // COEP: unsafe-none here — the opposite of every other route.
-  if (url.pathname.startsWith('/connect/') || url.pathname.includes('/connect/')) {
+  if (url.pathname.includes('/connect/')) {
+    const connectUrl = new URL('./connect.html', self.location.href);
     event.respondWith(
-      fetch('/connect.html').then((response) => {
+      fetch(connectUrl.href).then((response) => {
         const headers = new Headers(response.headers);
         headers.set('Cross-Origin-Opener-Policy', 'same-origin');
         headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
