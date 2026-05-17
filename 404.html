@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Redirecting…</title>
+  <script>
+    const path = window.location.pathname;
+    if (path.includes('/connect/')) {
+      // WebContainer always generates connect URLs as /webcontainer/connect/<token>
+      // regardless of where your page lives. We redirect to your actual page
+      // with the full connect path encoded as a query param, so the service
+      // worker (which is scoped to your page) can intercept and serve connect.html.
+      const yourPage = '/wcptvs/claudenowtries/index.html';
+      window.location.replace(yourPage + '?redirect=' + encodeURIComponent(path));
+    }
+  </script>
+</head>
+<body></body>
+</html>
