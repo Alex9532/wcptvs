@@ -10,11 +10,22 @@
 <body>
 <span>connecting…</span>
 <script type="module">
-  // This page is served by the SW at the real /webcontainer/connect/<token> path.
-  // window.opener is set because index.html opens it via window.open().
-  // Both conditions setupConnect() requires are now met.
   import { setupConnect } from 'https://esm.sh/@webcontainer/api/connect';
+
+  const params = new URLSearchParams(window.location.search);
+  const serverUrl = params.get('serverUrl');
+
+  // setupConnect() checks window.location.pathname starts with /webcontainer/connect/.
+  // This page is served at /wcptvs/claudenowtries/connect.html so we spoof the path.
+  // window.opener is intact because window.open() was used with no redirect.
+  Object.defineProperty(window.location, 'pathname', {
+    get: () => '/webcontainer/connect/direct',
+    configurable: true,
+  });
+
   await setupConnect();
+
+  if (serverUrl) window.location.replace(serverUrl);
 </script>
 </body>
 </html>
