@@ -342,7 +342,7 @@
   <header>
     <div class="logo">
       <div class="logo-dot booting" id="status-dot"></div>
-      webcontainer / terminal v1.6.66
+      webcontainer / terminal v1.6.67
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <a class="server-btn" id="server-btn" target="_blank" rel="noopener">
@@ -355,6 +355,15 @@
 
   <div class="terminal-wrap">
     <div class="terminal" id="terminal"></div>
+  </div>
+
+  <div id="server-url-bar" style="display:none; align-items:center; gap:8px; margin-bottom:8px;">
+    <input id="server-url-input" readonly style="flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--cyan); font-family:var(--mono); font-size:11px; padding:7px 10px; outline:none;" />
+    <button id="copy-url-btn" style="font-family:var(--mono); font-size:11px; padding:6px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text-dim); cursor:pointer; white-space:nowrap; transition:color .15s;">copy url</button>
+  </div>
+
+  <div id="preview-wrap" style="display:none; margin-bottom:12px;">
+    <iframe id="preview-frame" src="about:blank" allow="cross-origin-isolated" style="width:100%; height:400px; border:1px solid var(--border); border-radius:var(--radius); background:#fff;"></iframe>
   </div>
 
   <div>
@@ -413,7 +422,15 @@
   const zipInput      = document.getElementById('zip-input');
   const uploadHint    = document.getElementById('upload-hint');
   const extractToggle = document.getElementById('extract-toggle');
-  const serverBtn     = document.getElementById('server-btn');
+  const serverBtn = document.getElementById('server-btn');
+  document.getElementById('copy-url-btn').addEventListener('click', () => {
+    const val = document.getElementById('server-url-input').value;
+    navigator.clipboard.writeText(val).then(() => {
+      const btn = document.getElementById('copy-url-btn');
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy url', 1500);
+    });
+  });
 
   let wc = null;
   let cwd = '/';
@@ -494,16 +511,16 @@
         dot2.className = 'server-btn-dot';
         serverBtn.appendChild(dot2);
         serverBtn.appendChild(document.createTextNode(` :${port}`));
+
         serverBtn.onclick = (e) => {
           e.preventDefault();
-          // Opening the server URL directly causes a cross-origin redirect to
-          // /webcontainer/connect/<token>, which clears window.opener.
-          // Instead we open connect.html on our own domain first (preserving
-          // opener), pass the server URL as a param, and let connect.html
-          // navigate itself after the handshake completes.
-          const dest = new URL('./connect.html', window.location.href);
-          dest.searchParams.set('serverUrl', url);
-          window.open(dest.href, '_blank', 'noopener=no');
+          // Open the SW-intercepted connect path directly as a new tab.
+          // The SW is already active in the parent, and window.open() of a
+          // same-origin URL that the SW intercepts means the new tab is
+          // immediately SW-controlled — no connect.html bounce needed.
+          // opener is preserved because it's same-origin with no redirects.
+          const dest = '/webcontainer/connect/direct?serverUrl=' + encodeURIComponent(url);
+          window.open(dest, '_blank', 'noopener=no');
         };
       });
     } catch (e) {
